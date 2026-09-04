@@ -19,25 +19,25 @@
 
 ---
 
-## ✨ 核心特性 (Features)
+## 核心特性 (Features)
 
-- 🔐 **安全认证与授权**：基于 JWT 的双 Token 机制 (Access + Refresh)，配合严格的 RBAC (Role-Based Access Control) 守卫。
-- 🖼️ **企业级图片库**：
+-  **安全认证与授权**：基于 JWT 的双 Token 机制 (Access + Refresh)，配合严格的 RBAC (Role-Based Access Control) 守卫。
+-  **企业级图片库**：
   - 原图与缩略图分离存储 (`/images` & `/image_cache`)，基于 `sharp` 自动裁剪压缩。
   - 基于 HMAC-SHA256 的**签名防盗链下载链接**，支持毫秒级过期控制。
   - 自动计算 MD5 实现图片去重与秒传。
-- 🛡️ **生产级文件安全**：
+-  **生产级文件安全**：
   - 严格的 Magic Bytes (文件头) 校验，杜绝扩展名伪造攻击。
   - 路径遍历攻击 (Path Traversal) 防护与空字节注入拦截。
   - 上传/删除时自动联动清理磁盘垃圾文件。
-- 🗄️ **健壮的数据层**：PostgreSQL + TypeORM，支持 UUID 主键、软删除 (`DeleteDateColumn`) 及级联关系管理。
-- 📝 **全局可观测性**：基于 Winston 的全局日志系统，支持多级别、按天自动切割、错误日志隔离及彩色控制台输出。
-- ⚙️ **配置驱动**：基于 `@nestjs/config` 的 YAML 集中式配置管理，支持环境变量覆盖。
-- 🌱 **自动初始化 (Auto-Seed)**：应用启动时自动检测并创建默认系统管理员，解决“鸡生蛋”问题。
+-  **健壮的数据层**：PostgreSQL + TypeORM，支持 UUID 主键、软删除 (`DeleteDateColumn`) 及级联关系管理。
+-  **全局可观测性**：基于 Winston 的全局日志系统，支持多级别、按天自动切割、错误日志隔离及彩色控制台输出。
+-  **配置驱动**：基于 `@nestjs/config` 的 YAML 集中式配置管理，支持环境变量覆盖。
+-  **自动初始化 (Auto-Seed)**：应用启动时自动检测并创建默认系统管理员，解决“鸡生蛋”问题。
 
 ---
 
-## 🛠️ 技术栈 (Tech Stack)
+## 技术栈 (Tech Stack)
 
 - **Runtime**: Node.js (ESM Mode)
 - **Framework**: NestJS
@@ -49,7 +49,7 @@
 
 ---
 
-## 🚀 快速开始 (Quick Start)
+## 快速开始 (Quick Start)
 
 ### 1. 环境准备
 确保你的系统中已安装以下环境：
@@ -72,7 +72,7 @@ database:
     username: "your_username"
     password: "your_password"
     database: "koharu_db"
-    synchronize: true  # ⚠️ 首次启动设为 true 以自动建表，之后请改为 false
+    synchronize: true  # !首次启动设为 true 以自动建表，之后请改为 false
     logging: false
 
 server:
@@ -92,7 +92,7 @@ pnpm run start:prod
 
 ---
 
-## 👤 默认管理员 (Default Admin)
+## 默认管理员 (Default Admin)
 
 得益于内置的 `SeedService`，首次启动项目时，系统会自动在数据库中创建一个默认管理员账号：
 
@@ -100,39 +100,9 @@ pnpm run start:prod
 - **密码**: `Admin@123456`
 - **角色**: `ADMIN`
 
-> ⚠️ **安全警告**：请在生产环境部署前，立即通过 API 或数据库修改此默认密码！
+> !!! **安全警告**：请在生产环境部署前，立即通过 API 或数据库修改此默认密码！
 
----
-
-## 📡 核心 API 概览 (API Overview)
-
-### 🔑 认证模块 (`/auth`)
-- `POST /auth/login` - 用户登录，返回 Access Token 和 Refresh Token
-- `POST /auth/refresh` - 使用 Refresh Token 换取新的 Access Token
-
-### 👥 用户模块 (`/users`)
-- `POST /users` - 注册新用户
-- `GET /users/me` - 获取当前登录用户详细信息 (需 JWT)
-- `PATCH /users/me/password` - 修改当前用户密码 (需校验旧密码)
-- `GET /users/:id/public` - 获取用户公开资料 (用户名、简介、头像)
-- `GET /users` - 分页获取用户列表 (仅限 ADMIN / MODERATOR)
-- `PATCH /users/:id/role` - 修改用户角色 (仅限 ADMIN)
-
-### 🖼️ 图片库模块 (`/images`)
-- `POST /images` - 上传图片 (自动提取元数据、生成缩略图、计算 MD5)
-- `GET /images/:id/thumbnail` - 获取缩略图流 (用于列表展示)
-- `GET /images/:id/sign` - 生成带 HMAC 签名的限时下载链接
-- `GET /images/:id/download?signature=...&expires=...` - 验证签名并下载原图
-- `DELETE /images/:id` - 删除图片及关联的磁盘文件 (需所有者或管理员权限)
-
-### 🖼️ 头像模块 (`/avatars`)
-- `POST /avatars/:userId` - 上传/更新用户头像 (自动清理旧头像文件)
-- `GET /avatars/:userId/image` - 获取头像图片流
-- `DELETE /avatars/:userId` - 删除用户头像
-
----
-
-## 🛡️ 安全与最佳实践 (Security & Best Practices)
+## 安全与最佳实践 (Security & Best Practices)
 
 1. **文件上传防护**：所有文件上传均经过 `FileService` 的严格校验，包括大小限制、MIME 类型白名单以及底层的 Magic Bytes 校验，防止恶意脚本上传。
 2. **权限隔离**：敏感操作（如删除、修改他人信息）均在 Controller 层通过 `@UseGuards(JwtAuthGuard, RolesGuard)` 拦截，并在 Service 层进行二次业务逻辑校验。
@@ -141,6 +111,6 @@ pnpm run start:prod
 
 ---
 
-## 📜 License
+## License
 
 Koharu Backend is [MIT licensed](LICENSE).
