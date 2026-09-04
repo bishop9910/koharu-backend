@@ -1,14 +1,28 @@
 // src/user/dto/find-users-query.dto.ts
 import { IsOptional, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class FindUsersQueryDto {
+  @ApiPropertyOptional({ 
+    description: '页码 (从 1 开始)', 
+    example: 1, 
+    minimum: 1,
+    default: 1
+  })
   @IsOptional()
   @Type(() => Number) // 将 URL 字符串参数转换为数字
   @IsInt()
   @Min(1, { message: '页码必须大于等于 1' })
   page?: number = 1;
 
+  @ApiPropertyOptional({ 
+    description: '每页数量', 
+    example: 20, 
+    minimum: 1, 
+    maximum: 100,
+    default: 20
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()

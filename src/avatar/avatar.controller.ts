@@ -10,13 +10,24 @@ import {
   BadRequestException,
   Res,
   UseGuards,
+  Body,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import { 
+  ApiTags, 
+  ApiBearerAuth, 
+  ApiOperation, 
+  ApiOkResponse, 
+  ApiResponse,
+  ApiUnauthorizedResponse,
+  ApiConsumes,
+  ApiBody
+} from '@nestjs/swagger';
 import { AvatarService } from './avatar.service.js';
 import { FileService } from '../common/file/file.service.js';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
+import { UpdateAvatarDto } from './dto/update-avatar.dto.js';
 
 @ApiTags('avatars')
 @ApiBearerAuth()
@@ -33,26 +44,33 @@ export class AvatarController {
    */
   @Post(':userId')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        fileSize: 7 * 1024 * 1024, // 7MB (与配置保持一致)
-        files: 1,
+  @UseInterceptors(FileInterceptor('file')) // 👈 拦截器只负责提取文件，校验逻辑交给 Service/FileService
+  @ApiOperation({ summary: '上传或更新用户头像' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: UpdateAvatarDto }) // 👈 关联 DTO，Swagger 会自动解析出 file 字段
+  @ApiOkResponse({
+    description: '头像更新成功',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: '头像更新成功' },
+        avatar: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            path: { type: 'string', example: '/uploads/avatars/xxx.jpg' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
       },
-      fileFilter: (_req, file, cb) => {
-        // 初步 MIME 过滤 (FileService 还会做二次 Magic Bytes 校验)
-        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-        if (allowed.includes(file.mimetype)) {
-          cb(null, true);
-        } else {
-          cb(new BadRequestException('仅支持 JPG, PNG, WebP, GIF 格式'), false);
-        }
-      },
-    }),
-  )
+    },
+  })
+  @ApiResponse({ status: 400, description: '未找到文件或格式不支持' })
+  @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   async upsert(
     @Param('userId') userId: string,
     @UploadedFile() file: Express.Multer.File,
+    @Body() dto: UpdateAvatarDto, // 👈 接收 DTO，虽然目前主要用 file
   ) {
     if (!file) {
       throw new BadRequestException('未找到上传的文件');
@@ -64,18 +82,31 @@ export class AvatarController {
       message: '头像更新成功',
       avatar: {
         id: avatar.id,
-        path: avatar.path, // 前端可通过 baseUrl + path 直接访问
+        path: avatar.path,
         createdAt: avatar.createdAt,
       },
     };
   }
 
   /**
-   * 获取头像图片流 (可选：如果不想用静态文件服务，可用此接口)
+   * 获取头像图片流
    * GET /avatars/:userId/image
    */
   @Get(':userId/image')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '获取用户头像图片流' })
+  @ApiResponse({ 
+    status: 200, 
+    description: '返回头像图片二进制流', 
+    content: { 
+      'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+      'image/png': { schema: { type: 'string', format: 'binary' } },
+      'image/webp': { schema: { type: 'string', format: 'binary' } },
+      'image/gif': { schema: { type: 'string', format: 'binary' } },
+    } 
+  })
+  @ApiResponse({ status: 400, description: '该用户暂无头像或文件读取失败' })
+  @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   async getImage(
     @Param('userId') userId: string,
     @Res() res: Response,
@@ -89,7 +120,6 @@ export class AvatarController {
       const buffer = await this.fileService.readFile(avatar.path);
       const ext = avatar.path.split('.').pop()?.toLowerCase() || '';
       
-      // 设置正确的 Content-Type 和缓存策略
       const mimeMap: Record<string, string> = {
         jpg: 'image/jpeg',
         jpeg: 'image/jpeg',
@@ -100,7 +130,7 @@ export class AvatarController {
 
       res.set({
         'Content-Type': mimeMap[ext] || 'application/octet-stream',
-        'Cache-Control': 'public, max-age=86400', // 浏览器缓存 1 天
+        'Cache-Control': 'public, max-age=86400',
       });
       res.send(buffer);
     } catch (error) {
@@ -114,6 +144,13 @@ export class AvatarController {
    */
   @Delete(':userId')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '删除用户头像' })
+  @ApiOkResponse({ 
+    description: '头像删除成功',
+    schema: { type: 'object', properties: { message: { type: 'string', example: '头像已删除' } } }
+  })
+  @ApiResponse({ status: 400, description: '该用户暂无头像' })
+  @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   async remove(@Param('userId') userId: string) {
     await this.avatarService.remove(userId);
     return { message: '头像已删除' };

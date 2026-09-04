@@ -7,25 +7,38 @@ import {
   OneToOne,
   JoinColumn,
 } from 'typeorm';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'; // 👈 引入 Swagger 装饰器
 import { User } from './user.entity.js';
+import { UserController } from '../user/user.controller.js';
 
 @Entity('avatars')
 export class Avatar {
+  @ApiProperty({ description: '头像唯一标识 (UUID)' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @ApiProperty({ 
+    description: '头像文件的相对路径', 
+    example: '/uploads/avatars/550e8400-e29b-41d4-a716-446655440000.jpg' 
+  })
   @Column()
-  path: string; // 相对路径，例如: /avatars/xxx.jpg
+  path: string;
 
+  @ApiProperty({ description: '关联的用户 ID' })
   @Column({ unique: true })
   userId: string;
 
+  @ApiPropertyOptional({ 
+    description: '关联的用户详细信息', 
+    type: () => User
+  })
   @OneToOne(() => User, (user) => user.avatar, {
-    onDelete: 'CASCADE', // 数据库层面：用户删除时，自动删除头像记录
+    onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'userId' })
   user: User;
 
+  @ApiProperty({ description: '头像创建时间' })
   @CreateDateColumn()
   createdAt: Date;
 }

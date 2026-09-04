@@ -9,6 +9,7 @@ import { FileModule } from './common/file/file.module.js';
 import { AvatarModule } from './avatar/avatar.module.js';
 import { SeedModule } from './seed/seed.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { ImageModule } from './image/image.module.js';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { AuthModule } from './auth/auth.module.js';
       LoggerModule,
       FileModule,
       AvatarModule,
+      ImageModule,
       SeedModule
     ],
   controllers: [AppController],
