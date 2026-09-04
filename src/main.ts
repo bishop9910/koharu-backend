@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { AppLogger } from './log/logger.module.js';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { dump } from 'js-yaml';
 
 async function bootstrap() {
 
@@ -33,6 +34,12 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
+
+  app.getHttpAdapter().get('/api-yaml', (_req: any, res: any) => {
+    res.setHeader('Content-Type', 'text/yaml');
+    res.setHeader('Content-Disposition', 'attachment; filename="koharu-api.yaml"');
+    res.send(dump(document));
+  });
 
   await app.listen(port);
   logger.log(`Application is running on: http://localhost:${port}`, 'Bootstrap');

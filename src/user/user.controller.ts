@@ -31,7 +31,8 @@ import { FindUsersQueryDto } from './dto/find-users-query.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
 import { RolesGuard, Roles } from '../common/guards/role.guard.js';
 import { Role } from '../enums/role.enum.js';
-import { User } from '../entities/user.entity.js'; // 👈 引入 User 实体用于 Swagger 类型推断
+import { User } from '../entities/user.entity.js';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 
 @ApiTags('users')
 @Controller('users')
@@ -178,9 +179,10 @@ export class UserController {
   @ApiNotFoundResponse({ description: '用户不存在' })
   async updateRole(
     @Param('id') id: string, 
-    @Body('role') role: Role, 
+    @Body() dto: UpdateUserRoleDto,
     @Req() req: any
   ) {
-    return this.userService.updateRole(id, role, req.user);
+    // 将 dto.role 传递给 Service
+    return this.userService.updateRole(id, dto.role, req.user);
   }
 }
