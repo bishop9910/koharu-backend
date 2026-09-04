@@ -1,13 +1,10 @@
 <p align="center">
-  <a href="" target="blank">
-    <img 
-      src="./image/icon.png" 
-      width="120" 
-      height="120" 
-      style="border-radius: 50%; object-fit: cover; border: 4px solid #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" 
-      alt="Koharu Logo" 
-    />
-  </a>
+  <img 
+    src="./image/icon.png" 
+    alt="Koharu Logo" 
+    width="160"
+    height="134"
+  />
 </p>
 
 <h1 align="center">Koharu Backend</h1>
