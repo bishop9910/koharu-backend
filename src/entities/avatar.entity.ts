@@ -1,11 +1,11 @@
 // src/entities/avatar.entity.ts
-import { 
-  Entity, 
-  Column, 
-  PrimaryGeneratedColumn, 
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
   CreateDateColumn,
   OneToOne,
-  JoinColumn
+  JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity.js';
 
@@ -15,15 +15,15 @@ export class Avatar {
   id: string;
 
   @Column()
-  path: string; // 头像文件路径/URL/hash
+  path: string; // 相对路径，例如: /avatars/xxx.jpg
 
-  @Column({ unique: true }) // 一个头像只属于一个用户
+  @Column({ unique: true })
   userId: string;
 
   @OneToOne(() => User, (user) => user.avatar, {
-    onDelete: 'CASCADE', // 用户删除时，头像也删除
+    onDelete: 'CASCADE', // 数据库层面：用户删除时，自动删除头像记录
   })
-  @JoinColumn({ name: 'userId' }) // 指定外键字段名
+  @JoinColumn({ name: 'userId' })
   user: User;
 
   @CreateDateColumn()

@@ -25,3 +25,5 @@ const winstonProvider = {
   exports: [AppLogger],
 })
 export class LoggerModule {}
+
+export { AppLogger };

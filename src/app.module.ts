@@ -4,7 +4,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller.js';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AppService } from './app.service.js';
-import configuration from './config/configuration.js';
+import configuration from './common/config/configuration.js';
+import { FileModule } from './common/file/file.module.js';
+import { AvatarModule } from './avatar/avatar.module.js';
+import { SeedModule } from './seed/seed.module.js';
 
 @Module({
   imports: [
@@ -14,19 +17,26 @@ import configuration from './config/configuration.js';
       }),
       TypeOrmModule.forRootAsync({
         inject: [ConfigService],
-        useFactory: (configService: ConfigService) => ({
-          type: 'postgres',       // 数据库类型
-          host: configService.get<string>("database.postgres.host", "localhost"),      // 数据库主机地址
-          port: configService.get<number>("database.postgres.port", 5432),             // 数据库端口，PostgreSQL 默认为 5432[reference:6]
-          username: configService.get<string>("database.postgres.username", "your_username"),
-          password: configService.get<string>("database.postgres.password", "your_password"),
-          database: configService.get<string>("database.postgres.database", "your_db_name"),
-          synchronize: configService.get<boolean>('database.postgres.synchronize', true),      // 开发时自动同步数据库结构，生产环境务必设为 false[reference:7]
-          autoLoadEntities: true, // 自动加载实体[reference:8]
-          logging: configService.get<boolean>('database.postgres.logging', false),
-        }),
+        useFactory: (configService: ConfigService) => {
+          const dbConfig = configService.get('database.postgres');
+          return {
+            type: 'postgres',
+            host: dbConfig.host,
+            port: dbConfig.port,
+            username: dbConfig.username,
+            password: dbConfig.password,
+            database: dbConfig.database,
+            synchronize: dbConfig.synchronize, // 开发时可临时改为 true，生产保持 false
+            logging: dbConfig.logging,
+            autoLoadEntities: true,
+          };
+        },
       }),
-      LoggerModule
+      LoggerModule,
+      FileModule,
+      AvatarModule,
+      SeedModule,
+      
     ],
   controllers: [AppController],
   providers: [AppService],

@@ -11,22 +11,25 @@ export const default_config = {
     }
   },
   server: {
-    port: 9910,
+    port: 3000,
     token: {
-      key: "hash", // token密钥 hash
+      key: "default_secret", // token密钥 hash
       timeout: 24 * 60 * 1000, // 毫秒, 一天
       refresh_timeout: 8 * 24 * 60 * 1000 // 8天
     },
     image_lib: {
       path: "./images",
       cache_path : "./image_cache",
-      cache_time: 24 * 60 * 1000 // 毫秒, 一天, 签字好的image生成hash副本和缩略图放在缓存, 存1天
+      cache_time: 24 * 60 * 1000, // 毫秒, 一天, 签字好的image生成hash副本和缩略图放在缓存, 存1天
+      signature: {
+        expire_in: 24 * 60 * 1000,
+      }
     },
   },
   upload: {
     dir: './uploads',           // 上传根目录
     avatarDir: './uploads/avatars', // 头像子目录
-    maxSize: 7 * 1024 * 1024,   // 5MB
+    maxSize: 20 * 1024 * 1024,   // 20MB
     allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
   },
   logger: {

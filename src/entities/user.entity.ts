@@ -10,7 +10,7 @@ import {
   OneToOne
 } from 'typeorm';
 import { Role } from '../enums/role.enum.js';
-import { Avatar } from './avatar.entity.js';
+import { type Avatar } from './avatar.entity.js';
 
 @Entity('users')
 export class User {
@@ -41,7 +41,7 @@ export class User {
   @Column({ default: true })
   emailVerified: boolean;
 
-  @OneToOne(() => Avatar, (avatar) => avatar.user, {
+  @OneToOne('Avatar', (avatar: Avatar) => avatar.user, {
     cascade: true, 
     eager: false, 
   })
