@@ -2,113 +2,145 @@
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+<h1 align="center">Koharu Backend</h1>
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
+<p align="center">
+  一个基于 NestJS 构建的渐进式、高安全、可扩展的图库后端服务。
+  <br />
+  内置完整的 JWT 认证、RBAC 权限控制、企业级图片库管理及严格的文件安全防护。
 </p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-## Description
+<p align="center">
+  <a href="https://nodejs.org" target="_blank"><img src="https://img.shields.io/badge/Node.js-v22.x-green.svg" alt="Node Version" /></a>
+  <a href="https://nestjs.com" target="_blank"><img src="https://img.shields.io/badge/NestJS-v12.x-red.svg" alt="NestJS Version" /></a>
+  <a href="https://pnpm.io" target="_blank"><img src="https://img.shields.io/badge/Package%20Manager-pnpm-orange.svg" alt="Package Manager" /></a>
+  <a href="https://www.typescriptlang.org" target="_blank"><img src="https://img.shields.io/badge/TypeScript-5.x-blue.svg" alt="TypeScript" /></a>
+</p>
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## ✨ 核心特性 (Features)
 
+- 🔐 **安全认证与授权**：基于 JWT 的双 Token 机制 (Access + Refresh)，配合严格的 RBAC (Role-Based Access Control) 守卫。
+- 🖼️ **企业级图片库**：
+  - 原图与缩略图分离存储 (`/images` & `/image_cache`)，基于 `sharp` 自动裁剪压缩。
+  - 基于 HMAC-SHA256 的**签名防盗链下载链接**，支持毫秒级过期控制。
+  - 自动计算 MD5 实现图片去重与秒传。
+- 🛡️ **生产级文件安全**：
+  - 严格的 Magic Bytes (文件头) 校验，杜绝扩展名伪造攻击。
+  - 路径遍历攻击 (Path Traversal) 防护与空字节注入拦截。
+  - 上传/删除时自动联动清理磁盘垃圾文件。
+- 🗄️ **健壮的数据层**：PostgreSQL + TypeORM，支持 UUID 主键、软删除 (`DeleteDateColumn`) 及级联关系管理。
+- 📝 **全局可观测性**：基于 Winston 的全局日志系统，支持多级别、按天自动切割、错误日志隔离及彩色控制台输出。
+- ⚙️ **配置驱动**：基于 `@nestjs/config` 的 YAML 集中式配置管理，支持环境变量覆盖。
+- 🌱 **自动初始化 (Auto-Seed)**：应用启动时自动检测并创建默认系统管理员，解决“鸡生蛋”问题。
+
+---
+
+## 🛠️ 技术栈 (Tech Stack)
+
+- **Runtime**: Node.js (ESM Mode)
+- **Framework**: NestJS
+- **Database**: PostgreSQL
+- **ORM**: TypeORM
+- **Package Manager**: pnpm
+- **Validation**: class-validator, class-transformer
+- **Security**: bcrypt, passport-jwt, crypto, sharp, file-type
+
+---
+
+## 🚀 快速开始 (Quick Start)
+
+### 1. 环境准备
+确保你的系统中已安装以下环境：
+- [Node.js](https://nodejs.org/) (推荐 v20.x 或 v22.x)
+- [pnpm](https://pnpm.io/) (`npm install -g pnpm`)
+- [PostgreSQL](https://www.postgresql.org/) (推荐 v15+)
+
+### 2. 安装依赖
 ```bash
-$ pnpm install
+pnpm install
 ```
 
-## Compile and run the project
+### 3. 配置数据库与密钥
+复制默认配置或修改 `configs/config.yaml` (首次运行会自动生成)：
+```yaml
+database:
+  postgres:
+    host: "localhost"
+    port: 5432
+    username: "your_username"
+    password: "your_password"
+    database: "koharu_db"
+    synchronize: true  # ⚠️ 首次启动设为 true 以自动建表，之后请改为 false
+    logging: false
 
-```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+server:
+  port: 9910
+  token:
+    key: "your-super-secret-key-here" # 请替换为安全的随机字符串
 ```
 
-## Run tests
-
+### 4. 启动项目
 ```bash
-# unit tests
-$ pnpm run test
+# 开发模式 (热重载)
+pnpm run start:dev
 
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+# 生产模式 (需先执行 pnpm run build)
+pnpm run start:prod
 ```
 
-## Deployment
+---
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## 👤 默认管理员 (Default Admin)
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+得益于内置的 `SeedService`，首次启动项目时，系统会自动在数据库中创建一个默认管理员账号：
 
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
-```
+- **用户名**: `admin`
+- **密码**: `Admin@123456`
+- **角色**: `ADMIN`
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+> ⚠️ **安全警告**：请在生产环境部署前，立即通过 API 或数据库修改此默认密码！
 
-## Observability
+---
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+## 📡 核心 API 概览 (API Overview)
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+### 🔑 认证模块 (`/auth`)
+- `POST /auth/login` - 用户登录，返回 Access Token 和 Refresh Token
+- `POST /auth/refresh` - 使用 Refresh Token 换取新的 Access Token
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+### 👥 用户模块 (`/users`)
+- `POST /users` - 注册新用户
+- `GET /users/me` - 获取当前登录用户详细信息 (需 JWT)
+- `PATCH /users/me/password` - 修改当前用户密码 (需校验旧密码)
+- `GET /users/:id/public` - 获取用户公开资料 (用户名、简介、头像)
+- `GET /users` - 分页获取用户列表 (仅限 ADMIN / MODERATOR)
+- `PATCH /users/:id/role` - 修改用户角色 (仅限 ADMIN)
 
-## Resources
+### 🖼️ 图片库模块 (`/images`)
+- `POST /images` - 上传图片 (自动提取元数据、生成缩略图、计算 MD5)
+- `GET /images/:id/thumbnail` - 获取缩略图流 (用于列表展示)
+- `GET /images/:id/sign` - 生成带 HMAC 签名的限时下载链接
+- `GET /images/:id/download?signature=...&expires=...` - 验证签名并下载原图
+- `DELETE /images/:id` - 删除图片及关联的磁盘文件 (需所有者或管理员权限)
 
-Check out a few resources that may come in handy when working with NestJS:
+### 🖼️ 头像模块 (`/avatars`)
+- `POST /avatars/:userId` - 上传/更新用户头像 (自动清理旧头像文件)
+- `GET /avatars/:userId/image` - 获取头像图片流
+- `DELETE /avatars/:userId` - 删除用户头像
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+---
 
-## Support
+## 🛡️ 安全与最佳实践 (Security & Best Practices)
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+1. **文件上传防护**：所有文件上传均经过 `FileService` 的严格校验，包括大小限制、MIME 类型白名单以及底层的 Magic Bytes 校验，防止恶意脚本上传。
+2. **权限隔离**：敏感操作（如删除、修改他人信息）均在 Controller 层通过 `@UseGuards(JwtAuthGuard, RolesGuard)` 拦截，并在 Service 层进行二次业务逻辑校验。
+3. **密码安全**：所有密码均使用 `bcrypt` 进行加盐哈希存储，API 响应中自动剥离敏感字段。
+4. **生产环境配置**：部署到生产环境前，请务必将 `database.postgres.synchronize` 设置为 `false`，并使用 TypeORM Migration 管理数据库结构变更。
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## 📜 License
 
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Koharu Backend is [MIT licensed](LICENSE).
