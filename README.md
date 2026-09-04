@@ -1,5 +1,13 @@
 <p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
+  <a href="." target="blank">
+    <img 
+      src="./image/icon.png" 
+      width="140" 
+      height="140" 
+      style="border-radius: 50%; object-fit: cover; transform: scale(1.1);" 
+      alt="Koharu Logo" 
+    />
+  </a>
 </p>
 
 <h1 align="center">Koharu Backend</h1>
