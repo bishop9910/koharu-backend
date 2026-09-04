@@ -83,7 +83,7 @@ database:
 server:
   port: 9910
   token:
-    key: "your-super-secret-key-here" # 请替换为安全的随机字符串
+    key: "default_secret" # 请替换为安全的随机字符串
 ```
 
 ### 4. 启动项目
@@ -102,10 +102,11 @@ pnpm run start:prod
 得益于内置的 `SeedService`，首次启动项目时，系统会自动在数据库中创建一个默认管理员账号：
 
 - **用户名**: `admin`
-- **密码**: `Admin@123456`
+- **密码**: `随机生成的16位hash`
 - **角色**: `ADMIN`
 
 > !!! **安全警告**：请在生产环境部署前，立即通过 API 或数据库修改此默认密码！
+> 如果忘记初始密码可以查看日志或者adminInfo的json信息
 
 ## 安全与最佳实践 (Security & Best Practices)
 
