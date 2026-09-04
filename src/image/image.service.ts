@@ -1,5 +1,8 @@
 // src/image/image.service.ts
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { 
+  Injectable, Logger, NotFoundException, BadRequestException, 
+  ForbiddenException, InternalServerErrorException 
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -9,7 +12,7 @@ import * as crypto from 'crypto';
 import sharp from 'sharp';
 import { Image } from '../entities/image.entity.js';
 import { FileService } from '../common/file/file.service.js';
-import { calculateMD5 } from '../common/utils/hash.util.js';
+import { calculateMD5 } from '../common/utils/hash.util.js'; // 👈 确保引入
 import { ImageStatus } from '../enums/image-status.enum.js';
 import { Role } from '../enums/role.enum.js';
 
@@ -18,9 +21,8 @@ export class ImageService {
   private readonly logger = new Logger(ImageService.name);
   private readonly imageRoot: string;
   private readonly cacheRoot: string;
-  private readonly cacheTimeMs: number; // 毫秒
+  private readonly cacheTimeMs: number; 
   private readonly signatureSecret: string;
-  private readonly signExpireIn: number;
 
   constructor(
     @InjectRepository(Image)
@@ -28,34 +30,18 @@ export class ImageService {
     private fileService: FileService,
     private configService: ConfigService,
   ) {
-    // 👇 适配 server.image_lib 配置
-    this.imageRoot = path.resolve(
-      process.cwd(),
-      this.configService.get<string>('server.image_lib.path', './images'),
-    );
-    this.cacheRoot = path.resolve(
-      process.cwd(),
-      this.configService.get<string>('server.image_lib.cache_path', './image_cache'),
-    );
+    this.imageRoot = path.resolve(process.cwd(), this.configService.get<string>('server.image_lib.path', './images'));
+    this.cacheRoot = path.resolve(process.cwd(), this.configService.get<string>('server.image_lib.cache_path', './image_cache'));
     this.cacheTimeMs = this.configService.get<number>('server.image_lib.cache_time', 24 * 60 * 1000);
-    this.signExpireIn = this.configService.get<number>('server.image_lib.signature.expire_in', 24 * 60 * 1000);
-    
-    // 使用 server.token.key 作为签名密钥，保持系统密钥统一
     this.signatureSecret = this.configService.get<string>('server.token.key', 'default_secret');
   }
 
   async upload(file: Express.Multer.File, userId?: string): Promise<Image> {
-    // 1. 保存原图到 ./images
     const originalPath = await this.fileService.saveFile(file, 'images');
-
-    // 2. 获取元数据
     const metadata = await sharp(file.buffer).metadata();
-
-    // 3. 生成缩略图并放入 ./image_cache
-    const thumbnailPath = await this.generateThumbnail(file.buffer, path.basename(originalPath));
-
+    const thumbnailPath = await this.generateThumbnail(file.buffer, path.basename(originalPath), file.mimetype);
     const image_md5 = calculateMD5(file.buffer);
-    // 4. 入库
+
     const image = this.imageRepository.create({
       filename: file.originalname,
       path: originalPath,
@@ -69,7 +55,7 @@ export class ImageService {
       status: ImageStatus.PENDING,
     });
 
-    this.logger.log(`用户 ${userId} 上传图片，等待审核: ${image.id}`);
+    this.logger.log(`用户 ${userId} 上传图片，等待审核: ${image.id}, MD5: ${image_md5}`);
     return await this.imageRepository.save(image);
   }
 
@@ -89,19 +75,40 @@ export class ImageService {
     return await this.imageRepository.save(image);
   }
 
+   private async generateThumbnail(
+    imageBuffer: Buffer, 
+    originalFilename: string, 
+    originalMimeType: string
+  ): Promise<string> {
+    const ext = path.extname(originalFilename).toLowerCase();
+    const nameWithoutExt = path.basename(originalFilename, ext);
+    
+    let processor = sharp(imageBuffer).resize({ 
+      width: 800,
+      withoutEnlargement: true
+    });
 
-  private async generateThumbnail(imageBuffer: Buffer, originalFilename: string): Promise<string> {
-    const thumbFilename = `thumb_${originalFilename}`;
+    let thumbExt = ext;
+
+    if (ext === '.png') {
+      // PNG 转为 WebP
+      thumbExt = '.webp';
+      processor = processor.webp({ quality: 80 });
+    } else if (ext === '.webp') {
+      processor = processor.webp({ quality: 80 });
+    } else {
+      // JPEG / JPG
+      thumbExt = '.jpg';
+      processor = processor.jpeg({ quality: 80 });
+    }
+
+    const thumbFilename = `thumb_${nameWithoutExt}${thumbExt}`;
     const thumbRelativePath = `/image_cache/${thumbFilename}`;
     const thumbAbsolutePath = path.join(this.cacheRoot, thumbFilename);
 
     await fs.mkdir(this.cacheRoot, { recursive: true });
-
-    // 生成 400x400 的居中裁剪缩略图，质量 80
-    await sharp(imageBuffer)
-      .resize(400, 400, { fit: 'cover', position: 'center' })
-      .jpeg({ quality: 80 })
-      .toFile(thumbAbsolutePath);
+    
+    await processor.toFile(thumbAbsolutePath);
 
     return thumbRelativePath;
   }
@@ -113,7 +120,6 @@ export class ImageService {
     if (image.status !== ImageStatus.APPROVED) {
       const isAdminOrMod = currentUser?.role === Role.ADMIN || currentUser?.role === Role.MODERATOR;
       const isOwner = currentUser?.id === image.userId;
-
       if (!isAdminOrMod && !isOwner) {
         throw new ForbiddenException('无权查看未通过审核的图片');
       }
@@ -121,8 +127,18 @@ export class ImageService {
     
     const thumbExists = await this.fileService.exists(image.thumbnailPath);
     if (!thumbExists) {
+      this.logger.warn(`缩略图缓存丢失，触发自愈逻辑，准备从原图重新生成: ${image.id}`);
+      
       const originalBuffer = await this.fileService.readFile(image.path);
-      await this.generateThumbnail(originalBuffer, path.basename(image.path));
+      
+      const currentMd5 = calculateMD5(originalBuffer);
+      if (currentMd5 !== image.md5) {
+        this.logger.error(`原图文件完整性校验失败！数据库MD5: ${image.md5}, 实际文件MD5: ${currentMd5}, 图片ID: ${image.id}`);
+        throw new InternalServerErrorException('原图文件已损坏或被篡改，无法生成缩略图，请联系管理员');
+      }
+
+      await this.generateThumbnail(originalBuffer, path.basename(image.path), image.mimeType);
+      this.logger.log(`缩略图自愈生成成功: ${image.id}`);
     }
 
     return {
@@ -131,11 +147,9 @@ export class ImageService {
     };
   }
 
-  // ==================== 签名与下载逻辑 ====================
-
   generateSignedUrl(imageId: string, baseUrl: string): string {
     const now = Date.now();
-    const expires = now + this.cacheTimeMs; // 👇 使用配置的毫秒级过期时间
+    const expires = now + this.cacheTimeMs; 
     const signature = this.createSignature(imageId, expires);
 
     const url = new URL(`/images/${imageId}/download`, baseUrl);
@@ -150,52 +164,69 @@ export class ImageService {
     return crypto.createHmac('sha256', this.signatureSecret).update(payload).digest('hex');
   }
 
-  async getOriginal(imageId: string, signature: string, expires: string): Promise<{
-    buffer: Buffer; mimeType: string; filename: string;
-  }> {
+  async getOriginal(imageId: string, signature: string, expires: string): Promise<{ buffer: Buffer; mimeType: string; filename: string; }> {
     const expiresMs = parseInt(expires, 10);
     const now = Date.now();
 
-    // 1. 验证是否过期 (毫秒级对比)
-    if (now > expiresMs) {
-      throw new BadRequestException('下载链接已过期，请重新获取');
-    }
+    if (now > expiresMs) throw new BadRequestException('下载链接已过期，请重新获取');
 
-    // 2. 验证签名
     const expectedSignature = this.createSignature(imageId, expiresMs);
-    if (signature !== expectedSignature) {
-      throw new BadRequestException('无效的签名');
-    }
+    if (signature !== expectedSignature) throw new BadRequestException('无效的签名');
 
-    // 3. 读取原图
     const image = await this.imageRepository.findOne({ where: { id: imageId } });
     if (!image) throw new NotFoundException('图片不存在');
 
+    if (image.status === ImageStatus.REJECTED) {
+       throw new ForbiddenException('该图片已被拒绝，无法下载');
+    }
+
+    const originalBuffer = await this.fileService.readFile(image.path);
+
+    const currentMd5 = calculateMD5(originalBuffer);
+    if (currentMd5 !== image.md5) {
+      this.logger.error(`下载前原图文件完整性校验失败！数据库MD5: ${image.md5}, 实际文件MD5: ${currentMd5}, 图片ID: ${image.id}`);
+      throw new InternalServerErrorException('原图文件已损坏或被篡改，下载已中止，请联系管理员');
+    }
+
+    this.logger.log(`用户成功下载图片 (MD5校验通过): ${image.id}`);
+
     return {
-      buffer: await this.fileService.readFile(image.path),
+      buffer: originalBuffer,
       mimeType: image.mimeType,
       filename: image.filename,
     };
   }
 
-  async remove(imageId: string): Promise<void> {
+  async remove(imageId: string, currentUser: any): Promise<void> {
     const image = await this.imageRepository.findOne({ where: { id: imageId } });
     if (!image) throw new NotFoundException('图片不存在');
+
+    const isAdminOrMod = currentUser?.role === Role.ADMIN || currentUser?.role === Role.MODERATOR;
+    const isOwner = currentUser?.id === image.userId;
+
+    if (!isAdminOrMod && !isOwner) {
+      this.logger.warn(`用户 ${currentUser?.id} 尝试越权删除图片 ${imageId}`);
+      throw new ForbiddenException('无权删除此图片');
+    }
 
     await this.fileService.deleteFile(image.path);
     if (image.thumbnailPath) {
       await this.fileService.deleteFile(image.thumbnailPath);
     }
     await this.imageRepository.remove(image);
+    this.logger.log(`图片 ${imageId} 已被用户 ${currentUser?.id} 删除`);
   }
 
-    /**
-   * 根据 ID 查询图片详情
-   */
-  async findOne(imageId: string): Promise<Image> {
+  async findOne(imageId: string, currentUser?: any): Promise<Image> {
     const image = await this.imageRepository.findOne({ where: { id: imageId } });
-    if (!image) {
-      throw new NotFoundException(`图片 ID ${imageId} 不存在`);
+    if (!image) throw new NotFoundException(`图片 ID ${imageId} 不存在`);
+
+    if (image.status !== ImageStatus.APPROVED) {
+      const isAdminOrMod = currentUser?.role === Role.ADMIN || currentUser?.role === Role.MODERATOR;
+      const isOwner = currentUser?.id === image.userId;
+      if (!isAdminOrMod && !isOwner) {
+        throw new ForbiddenException('无权查看未通过审核的图片');
+      }
     }
     return image;
   }

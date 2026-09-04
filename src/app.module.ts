@@ -8,6 +8,7 @@ import configuration from './common/config/configuration.js';
 import { FileModule } from './common/file/file.module.js';
 import { AvatarModule } from './avatar/avatar.module.js';
 import { SeedModule } from './seed/seed.module.js';
+import { AuthModule } from './auth/auth.module.js';
 
 @Module({
   imports: [
@@ -32,11 +33,11 @@ import { SeedModule } from './seed/seed.module.js';
           };
         },
       }),
+      AuthModule,
       LoggerModule,
       FileModule,
       AvatarModule,
-      SeedModule,
-      
+      SeedModule
     ],
   controllers: [AppController],
   providers: [AppService],

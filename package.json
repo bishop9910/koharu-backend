@@ -30,6 +30,7 @@
     "@nestjs/observe": "^0.1.8",
     "@nestjs/passport": "^12.0.0",
     "@nestjs/platform-express": "^12.0.1",
+    "@nestjs/swagger": "^12.0.1",
     "@nestjs/typeorm": "^12.0.1",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
@@ -42,6 +43,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "sharp": "^0.35.4",
+    "swagger-ui-express": "^5.0.1",
     "typeorm": "^1.1.0",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0"

@@ -3,10 +3,22 @@ import { AppModule } from './app.module.js';
 import { ConfigService } from '@nestjs/config';
 import { AppLogger } from './log/logger.module.js';
 import { ValidationPipe } from '@nestjs/common';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
-  // 创建应用实例
+
   const app = await NestFactory.create(AppModule);
+
+  const config = new DocumentBuilder()
+    .setTitle('Koharu API')
+    .setDescription('Koharu 后端服务 API 文档')
+    .setVersion('0.0.2')
+    .addBearerAuth() // 添加 JWT 认证支持
+    .addTag('auth', '认证模块')
+    .addTag('users', '用户模块')
+    .addTag('images', '图库模块')
+    .addTag('avatars', '头像模块')
+    .build();
 
   const logger = app.get(AppLogger);
   app.useLogger(logger);
@@ -18,6 +30,9 @@ async function bootstrap() {
     transform: true, 
     whitelist: true,
   }));
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api', app, document);
 
   await app.listen(port);
   logger.log(`Application is running on: http://localhost:${port}`, 'Bootstrap');

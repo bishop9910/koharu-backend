@@ -20,7 +20,9 @@ import { RolesGuard, Roles } from '../common/guards/role.guard.js'; // 保持你
 import { Role } from '../enums/role.enum.js';
 import { FindUsersQueryDto } from './dto/find-users-query.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('users')
 @Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) {}
@@ -39,6 +41,7 @@ export class UserController {
    * GET /users?page=1&limit=20
    */
   @Get()
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.MODERATOR)
   async findAll(@Query() query: FindUsersQueryDto) {
@@ -49,6 +52,7 @@ export class UserController {
    * 获取自己的用户信息
    * GET /users/me
    */
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getSelfUserInfo(@Req() req: any) {
@@ -59,6 +63,7 @@ export class UserController {
    * 修改自己的密码
    * PATCH /users/me/password
    */
+  @ApiBearerAuth()
   @Patch('me/password')
   @UseGuards(JwtAuthGuard)
   async changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
@@ -69,8 +74,9 @@ export class UserController {
    * 获取用户的公开资料 (用户名、简介、角色、头像)(需登录)
    * GET /users/:id/public
    */
-  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @Get(':id/public')
+  @UseGuards(JwtAuthGuard)
   async getPublicProfile(@Param('id') id: string) {
     return this.userService.findPublicProfile(id);
   }
@@ -79,6 +85,7 @@ export class UserController {
    * 获取单个用户详情 (严格权限校验)
    * GET /users/:id
    */
+  @ApiBearerAuth()
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   async findOne(@Param('id') id: string, @Req() req: any) {
@@ -92,6 +99,7 @@ export class UserController {
    * 更新用户信息
    * PATCH /users/:id
    */
+  @ApiBearerAuth()
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
   async update(
@@ -107,6 +115,7 @@ export class UserController {
    * 删除用户 (软删除)
    * DELETE /users/:id
    */
+  @ApiBearerAuth()
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   async remove(@Param('id') id: string, @Req() req: any) {
@@ -118,6 +127,7 @@ export class UserController {
    * 修改用户角色 (仅管理员)
    * PATCH /users/:id/role
    */
+  @ApiBearerAuth()
   @Patch(':id/role')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)

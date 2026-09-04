@@ -1,22 +1,21 @@
 // src/image/image.controller.ts
 import {
-  Controller,
-  Post,
-  Get,
-  Delete,
-  Param,
-  Query,
-  UseInterceptors,
-  UploadedFile,
-  BadRequestException,
-  Res,
-  Req,
+  Controller, Post, Get, Delete, Param, Query, Body,
+  UseInterceptors, UploadedFile, BadRequestException, Res, Req, UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { ImageService } from './image.service.js';
 import { ConfigService } from '@nestjs/config';
+import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
+import { RolesGuard, Roles } from '../common/guards/role.guard.js';
+import { Role } from '../enums/role.enum.js';
+import { ReviewImageDto } from './dto/review-image.dto.js';
+import { DownloadImageQueryDto } from './dto/download-image-query.dto.js';
 
+@ApiTags('images')
+@ApiBearerAuth()
 @Controller('images')
 export class ImageController {
   constructor(
@@ -24,129 +23,84 @@ export class ImageController {
     private readonly configService: ConfigService,
   ) {}
 
-  /**
-   * 1. 上传图片
-   * POST /images?userId=xxx
-   */
   @Post()
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        // 从配置读取，兜底 100MB
-        fileSize: 100 * 1024 * 1024,
-        files: 1,
-      }
-    }),
-  )
-  async upload(
-    @UploadedFile() file: Express.Multer.File,
-    @Req() req: any,
-  ) {
-     if (!req.user) throw new BadRequestException('未登录');
-    if (!file) {
-      throw new BadRequestException('未找到上传的文件');
-    }
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024, files: 1 } }))
+  @ApiOperation({ summary: '上传图片 (需登录)' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  async upload(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
+    if (!req.user) throw new BadRequestException('未登录');
+    if (!file) throw new BadRequestException('未找到上传的文件');
 
     const image = await this.imageService.upload(file, req.user.id);
-    
-    // 生成一个预览用的缩略图访问链接
-    const thumbnailUrl = `/images/${image.id}/thumbnail`;
-    
     return {
-      message: '图片上传成功',
-      image: {
-        ...image,
-        thumbnailUrl, // 方便前端直接使用
-      },
+      message: '图片上传成功，等待审核',
+      image: { ...image, thumbnailUrl: `/images/${image.id}/thumbnail` },
     };
   }
 
-  /**
-   * 2. 获取缩略图 (用于列表/在线浏览)
-   * GET /images/:id/thumbnail
-   */
-  @Get(':id/thumbnail')
-  async getThumbnail(
+  @Post(':id/review')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: '审核图片 (仅管理员/审核员)' })
+  async reviewImage(
     @Param('id') id: string,
-    @Res() res: Response,
+    @Body() dto: ReviewImageDto,
+    @Req() req: any,
   ) {
-    const { buffer, mimeType } = await this.imageService.getThumbnail(id);
+    return this.imageService.reviewImage(id, dto.status, req.user.id, dto.reason);
+  }
 
-    res.set({
-      'Content-Type': mimeType,
-      'Cache-Control': 'public, max-age=86400', // 浏览器缓存 1 天
-    });
+  @Get(':id/thumbnail')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '获取缩略图流' })
+  async getThumbnail(@Param('id') id: string, @Req() req: any, @Res() res: Response) {
+    const { buffer, mimeType } = await this.imageService.getThumbnail(id, req.user);
+    res.set({ 'Content-Type': mimeType, 'Cache-Control': 'public, max-age=86400' });
     res.send(buffer);
   }
 
-  /**
-   * 3. 生成带签名的下载链接
-   * GET /images/:id/sign
-   */
   @Get(':id/sign')
-  async generateSignedUrl(
-    @Param('id') id: string,
-    @Req() req: Request,
-  ) {
-    // 动态获取当前服务器的基础 URL (例如: http://localhost:9910)
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '生成带签名的限时下载链接' })
+  async generateSignedUrl(@Param('id') id: string, @Req() req: Request) {
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const signedUrl = this.imageService.generateSignedUrl(id, baseUrl);
-
     return {
       downloadUrl: signedUrl,
-      // 返回配置的过期时间（毫秒转秒方便前端理解，或者直接返回毫秒）
       expiresInMs: this.configService.get<number>('server.image_lib.cache_time', 24 * 60 * 1000),
     };
   }
 
-  /**
-   * 4. 下载原图 (需要签名验证)
-   * GET /images/:id/download?signature=xxx&expires=xxx
-   */
   @Get(':id/download')
+  @ApiOperation({ summary: '验证签名并下载原图 (无需 JWT，靠签名验证)' })
   async downloadOriginal(
     @Param('id') id: string,
-    @Query('signature') signature: string,
-    @Query('expires') expires: string,
+    @Query() query: DownloadImageQueryDto, // 使用 DTO 校验参数
     @Res() res: Response,
   ) {
-    if (!signature || !expires) {
-      throw new BadRequestException('缺少签名或过期时间参数');
-    }
-
-    const { buffer, mimeType, filename } = await this.imageService.getOriginal(
-      id,
-      signature,
-      expires,
-    );
-
-    // 设置下载响应头
+    const { buffer, mimeType, filename } = await this.imageService.getOriginal(id, query.signature, query.expires);
     res.set({
       'Content-Type': mimeType,
-      // 强制浏览器下载，并使用原始文件名
       'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
-      'Cache-Control': 'no-cache, no-store, must-revalidate', // 下载接口不缓存
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
     });
-    
     res.send(buffer);
   }
 
-  /**
-   * 5. 获取图片详情
-   * GET /images/:id
-   */
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return await this.imageService.findOne(id);
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '获取图片详情' })
+  async findOne(@Param('id') id: string, @Req() req: any) {
+    return await this.imageService.findOne(id, req.user);
   }
 
-  /**
-   * 6. 删除图片
-   * DELETE /images/:id
-   */
   @Delete(':id')
-  async remove(@Param('id') id: string) {
-    await this.imageService.remove(id);
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '删除图片 (本人或管理员)' })
+  async remove(@Param('id') id: string, @Req() req: any) {
+    await this.imageService.remove(id, req.user);
     return { message: '图片及缓存已彻底删除' };
   }
 }

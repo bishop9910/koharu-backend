@@ -16,7 +16,9 @@ import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 // import { JwtAuthGuard } from './guards/jwt.guard.js';
 import { UserService } from '../user/user.service.js';
+import { ApiTags } from '@nestjs/swagger';
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(

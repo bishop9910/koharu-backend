@@ -18,12 +18,10 @@ export class AuthService {
     private userService: UserService,
     private jwtService: JwtService,
     private configService: ConfigService,
-    @InjectRepository(User)
-    private userRepository: Repository<User>,
   ) {}
 
   /**
-   * 1. 验证账号密码
+   * 验证账号密码
    */
   async validateUser(loginDto: LoginDto): Promise<any> {
     const user = await this.userService.findByUsername(loginDto.username);
@@ -35,7 +33,7 @@ export class AuthService {
   }
 
   /**
-   * 2. 登录并生成双 Token
+   * 登录并生成双 Token
    */
   async login(user: any) {
     const payload = { sub: user.id, username: user.username, role: user.role };

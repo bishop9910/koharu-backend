@@ -9,12 +9,17 @@ import {
   UploadedFile,
   BadRequestException,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { AvatarService } from './avatar.service.js';
 import { FileService } from '../common/file/file.service.js';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
 
+@ApiTags('avatars')
+@ApiBearerAuth()
 @Controller('avatars')
 export class AvatarController {
   constructor(
@@ -27,6 +32,7 @@ export class AvatarController {
    * POST /avatars/:userId
    */
   @Post(':userId')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -69,6 +75,7 @@ export class AvatarController {
    * GET /avatars/:userId/image
    */
   @Get(':userId/image')
+  @UseGuards(JwtAuthGuard)
   async getImage(
     @Param('userId') userId: string,
     @Res() res: Response,
@@ -106,6 +113,7 @@ export class AvatarController {
    * DELETE /avatars/:userId
    */
   @Delete(':userId')
+  @UseGuards(JwtAuthGuard)
   async remove(@Param('userId') userId: string) {
     await this.avatarService.remove(userId);
     return { message: '头像已删除' };
