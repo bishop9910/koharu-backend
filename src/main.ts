@@ -21,6 +21,9 @@ async function bootstrap() {
     .addTag('users', '用户模块')
     .addTag('images', '图库模块')
     .addTag('avatars', '头像模块')
+    .addTag('audit-logs', '审计日志模块')
+    .addTag('albums', '图集模块')
+    .addTag('tags', '标签模块')
     .build();
 
   const logger = app.get(AppLogger);

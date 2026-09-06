@@ -7,9 +7,8 @@ import {
   OneToOne,
   JoinColumn,
 } from 'typeorm';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'; // 👈 引入 Swagger 装饰器
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { User } from './user.entity.js';
-import { UserController } from '../user/user.controller.js';
 
 @Entity('avatars')
 export class Avatar {

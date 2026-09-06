@@ -1,10 +1,11 @@
 // src/entities/image.entity.ts
 import {
   Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn,
-  Index, ManyToOne, JoinColumn
+  Index, ManyToOne, ManyToMany, JoinColumn
 } from 'typeorm';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { User } from './user.entity.js';
+import { Album } from './album.entity.js';
 import { ImageStatus } from '../enums/image-status.enum.js';
 
 @Entity('images')
@@ -68,12 +69,25 @@ export class Image {
   status: ImageStatus;
 
   @ApiPropertyOptional({ description: '拒绝原因 (仅当状态为 rejected 时存在)', example: '图片包含违规内容' })
-  @Column({ nullable: true, length: 255 })
-  rejectReason: string;
+  @Column({ type: 'varchar', nullable: true, length: 255 })
+  rejectReason: string | null;
 
   @ApiPropertyOptional({ description: '审核人用户 ID' })
-  @Column({ nullable: true })
-  reviewedBy: string;
+  @Column({ type: 'varchar', nullable: true })
+  reviewedBy: string | null;
+
+  @ApiProperty({ description: '已修改次数 (每张图片终身仅可修改一次)', default: 0 })
+  @Column({ default: 0 })
+  editCount: number;
+
+  @ApiPropertyOptional({ description: '上传者 IP (用于上传限流)' })
+  @Column({ type: 'varchar', nullable: true, length: 64 })
+  @Index()
+  uploaderIp: string | null;
+
+  @ApiPropertyOptional({ description: '所属图集', type: () => [Album] })
+  @ManyToMany(() => Album, (album) => album.images)
+  albums: Album[];
 
   @ApiProperty({ description: '创建时间 (上传时间)' })
   @CreateDateColumn()

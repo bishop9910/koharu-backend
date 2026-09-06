@@ -24,7 +24,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('用户不存在或已被删除');
     }
     
-    // 将用户信息附加到 request.user 上，供后续的 Controller 和 RolesGuard 使用
+    // 将用户信息附加到 request.user 上，供后续的 Controller 和 MinRoleGuard 使用
     return {
       id: user.id,
       username: user.username,

@@ -1,86 +1,138 @@
 // src/avatar/avatar.service.ts
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Avatar } from '../entities/avatar.entity.js';
+import { AvatarSubmission } from '../entities/avatar-submission.entity.js';
+import { User } from '../entities/user.entity.js';
 import { FileService } from '../common/file/file.service.js';
+import { AvatarStatus } from '../enums/avatar-status.enum.js';
+import { canManageTarget } from '../common/utils/role.util.js';
 
 @Injectable()
 export class AvatarService {
-  // 👇 注入 Logger，自动带上 [AvatarService] 上下文
   private readonly logger = new Logger(AvatarService.name);
 
   constructor(
     @InjectRepository(Avatar)
     private avatarRepository: Repository<Avatar>,
+    @InjectRepository(AvatarSubmission)
+    private submissionRepository: Repository<AvatarSubmission>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
     private fileService: FileService,
   ) {}
 
-  /**
-   * 上传或更新头像
-   */
-  async upsert(userId: string, file: Express.Multer.File): Promise<Avatar> {
-    this.logger.log(`开始为用户 ${userId} 处理头像上传`);
-
-    // 1. 查找是否已有头像
-    const existingAvatar = await this.avatarRepository.findOne({ where: { userId } });
-
-    // 2. 如果有旧头像，先尝试删除旧文件 (即使失败也记录日志，不阻断新头像上传)
-    if (existingAvatar) {
-      try {
-        await this.fileService.deleteFile(existingAvatar.path);
-        this.logger.log(`已清理用户 ${userId} 的旧头像文件`);
-      } catch (error: any) {
-        this.logger.warn(`清理旧头像文件失败，但将继续上传新头像: ${existingAvatar.path}`, error.stack);
-      }
+  async submit(userId: string, file: Express.Multer.File, currentUser: any): Promise<AvatarSubmission> {
+    if (currentUser.id !== userId) {
+      throw new ForbiddenException('只能上传自己的头像');
     }
 
-    // 3. 安全保存新文件 (FileService 会自动处理大小、类型、Magic Bytes 校验和 UUID 重命名)
-    // subDir 设为 'avatars'，最终路径类似: /avatars/uuid.jpg
+    const pending = await this.submissionRepository.findOne({
+      where: { userId, status: AvatarStatus.PENDING },
+    });
+    if (pending) {
+      throw new ConflictException('已有待审核的头像，请等待审核结果');
+    }
+
     const newPath = await this.fileService.saveFile(file, 'avatars');
+    const submission = this.submissionRepository.create({
+      userId,
+      path: newPath,
+      status: AvatarStatus.PENDING,
+    });
 
-    // 4. 保存或更新数据库记录
-    if (existingAvatar) {
-      existingAvatar.path = newPath;
-      const updated = await this.avatarRepository.save(existingAvatar);
-      this.logger.log(`用户 ${userId} 头像更新成功: ${newPath}`);
-      return updated;
-    } else {
-      const newAvatar = this.avatarRepository.create({ userId, path: newPath });
-      const saved = await this.avatarRepository.save(newAvatar);
-      this.logger.log(`用户 ${userId} 头像创建成功: ${newPath}`);
-      return saved;
-    }
+    const saved = await this.submissionRepository.save(submission);
+    this.logger.log(`用户 ${userId} 提交头像，等待审核: ${saved.id}`);
+    return saved;
   }
 
-  /**
-   * 获取用户头像信息
-   */
+  async review(userId: string, status: AvatarStatus, reviewerId: string, reason?: string) {
+    if (status === AvatarStatus.PENDING) {
+      throw new BadRequestException('审核状态只能是 approved 或 rejected');
+    }
+
+    const pending = await this.submissionRepository.findOne({
+      where: { userId, status: AvatarStatus.PENDING },
+    });
+    if (!pending) {
+      throw new NotFoundException('该用户没有待审核的头像');
+    }
+
+    if (status === AvatarStatus.REJECTED) {
+      if (!reason) {
+        throw new BadRequestException('拒绝头像时必须提供原因');
+      }
+
+      await this.fileService.deleteFile(pending.path).catch(() => {});
+      await this.submissionRepository.remove(pending);
+
+      this.logger.log(`审核员 ${reviewerId} 拒绝用户 ${userId} 的头像 (${reason})，已作废并回退到上一个头像`);
+      return { message: '头像已拒绝并作废，已回退到上一个头像' };
+    }
+
+    const current = await this.avatarRepository.findOne({ where: { userId } });
+
+    if (current) {
+      await this.fileService.deleteFile(current.path).catch(() => {});
+      current.path = pending.path;
+      const updated = await this.avatarRepository.save(current);
+      await this.submissionRepository.remove(pending);
+      this.logger.log(`审核员 ${reviewerId} 通过用户 ${userId} 的头像，已更新当前头像`);
+      return updated;
+    }
+
+    const avatar = this.avatarRepository.create({ userId, path: pending.path });
+    const saved = await this.avatarRepository.save(avatar);
+    await this.submissionRepository.remove(pending);
+    this.logger.log(`审核员 ${reviewerId} 通过用户 ${userId} 的头像，已创建当前头像`);
+    return saved;
+  }
+
   async findByUserId(userId: string): Promise<Avatar | null> {
     return await this.avatarRepository.findOne({ where: { userId } });
   }
 
-  /**
-   * 删除用户头像 (同步删除文件和数据库记录)
-   */
-  async remove(userId: string): Promise<void> {
-    this.logger.log(`开始删除用户 ${userId} 的头像`);
-    
+  async removeAllByUser(userId: string): Promise<void> {
+    const avatar = await this.avatarRepository.findOne({ where: { userId } });
+    if (avatar) {
+      await this.fileService.deleteFile(avatar.path).catch(() => {});
+      await this.avatarRepository.remove(avatar);
+    }
+
+    const submissions = await this.submissionRepository.find({ where: { userId } });
+    for (const submission of submissions) {
+      await this.fileService.deleteFile(submission.path).catch(() => {});
+      await this.submissionRepository.remove(submission);
+    }
+
+    this.logger.log(`已清理用户 ${userId} 的头像及 ${submissions.length} 条头像投稿`);
+  }
+
+  async remove(userId: string, currentUser: any): Promise<void> {
+    const target = await this.userRepository.findOne({ where: { id: userId } });
+    if (!target) {
+      throw new NotFoundException(`用户 ID ${userId} 不存在`);
+    }
+
+    const isSelf = currentUser.id === userId;
+    if (!isSelf && !canManageTarget(currentUser.role, target.role)) {
+      throw new ForbiddenException('无权删除该用户的头像');
+    }
+
     const avatar = await this.avatarRepository.findOne({ where: { userId } });
     if (!avatar) {
-      this.logger.warn(`尝试删除不存在的头像: userId=${userId}`);
       throw new NotFoundException('该用户暂无头像');
     }
 
-    // 1. 先删除磁盘文件
-    try {
-      await this.fileService.deleteFile(avatar.path);
-    } catch (error: any) {
-      this.logger.error(`删除头像文件失败，但将继续删除数据库记录: ${avatar.path}`, error.stack);
-      // 注意：这里不 throw，确保数据库脏数据能被清理
-    }
-
-    // 2. 再删除数据库记录
+    await this.fileService.deleteFile(avatar.path).catch(() => {});
     await this.avatarRepository.remove(avatar);
     this.logger.log(`用户 ${userId} 头像及文件已成功删除`);
   }

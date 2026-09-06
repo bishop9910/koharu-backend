@@ -1,13 +1,13 @@
 // src/user/dto/update-user.dto.ts
-import { IsString, IsEmail, IsOptional, IsEnum, IsBoolean, MinLength } from 'class-validator';
+import { IsString, IsEmail, IsOptional, MinLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Role } from '../../enums/role.enum.js';
 
 /**
  * 用于更新用户信息的 DTO。
+ * 用户名仅限本人修改；角色请使用专门的 PATCH /users/:id/role 接口。
  */
 export class UpdateUserDto {
-  @ApiPropertyOptional({ description: '用户名 (至少3个字符)', example: 'new_username' })
+  @ApiPropertyOptional({ description: '用户名 (至少3个字符，仅本人可修改)', example: 'new_username' })
   @IsOptional()
   @IsString()
   @MinLength(3)
@@ -22,15 +22,4 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   bio?: string;
-
-  @ApiPropertyOptional({ description: '用户角色', enum: Role })
-  @IsOptional()
-  @IsEnum(Role)
-  role?: Role;
-
-  @ApiPropertyOptional({ description: '邮箱是否已验证' })
-  @IsOptional()
-  @IsBoolean()
-  emailVerified?: boolean;
-
 }

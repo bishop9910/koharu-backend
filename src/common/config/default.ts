@@ -14,15 +14,15 @@ export const default_config = {
     port: 3000,
     token: {
       key: "default_secret", // token密钥 hash
-      timeout: 24 * 60 * 1000, // 毫秒, 一天
-      refresh_timeout: 8 * 24 * 60 * 1000 // 8天
+      timeout: 24 * 60 * 60 * 1000, // 毫秒, 一天
+      refresh_timeout: 8 * 24 * 60 * 60 * 1000 // 8天
     },
     image_lib: {
       path: "./images",
       cache_path : "./image_cache",
-      cache_time: 24 * 60 * 1000, // 毫秒, 一天, 签字好的image生成hash副本和缩略图放在缓存, 存1天
+      cache_time: 24 * 60 * 60 * 1000, // 毫秒, 一天, 签字好的image生成hash副本和缩略图放在缓存, 存1天
       signature: {
-        expire_in: 24 * 60 * 1000,
+        expire_in: 24 * 60 * 60 * 1000,
       }
     },
   },
@@ -38,6 +38,10 @@ export const default_config = {
     maxSize: '20m',        // 单个日志文件最大大小 (超过后自动分割)
     maxDays: '14d',        // 日志保留天数 (超过后自动删除)
     enableConsole: true,   // 是否同时输出到控制台
+  },
+  cleanup: {
+    retention_ms: 14 * 24 * 60 * 60 * 1000, // 毫秒, 软删除保留 2 周
+    interval_ms: 24 * 60 * 60 * 1000,       // 毫秒, 每天执行一次
   }
 }
 

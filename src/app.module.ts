@@ -12,6 +12,9 @@ import { AvatarModule } from './avatar/avatar.module.js';
 import { SeedModule } from './seed/seed.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ImageModule } from './image/image.module.js';
+import { AuditModule } from './audit/audit.module.js';
+import { AlbumModule } from './album/album.module.js';
+import { CleanupModule } from './cleanup/cleanup.module.js';
 
 @Module({
   imports: [
@@ -41,6 +44,9 @@ import { ImageModule } from './image/image.module.js';
       FileModule,
       AvatarModule,
       ImageModule,
+      AuditModule,
+      AlbumModule,
+      CleanupModule,
       SeedModule
     ],
   controllers: [AppController],
