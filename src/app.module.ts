@@ -1,3 +1,5 @@
+// src/app.module.ts
+
 import { Module } from '@nestjs/common';
 import { LoggerModule } from './log/logger.module.js';
 import { TypeOrmModule } from '@nestjs/typeorm';
