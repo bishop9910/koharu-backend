@@ -229,7 +229,7 @@ bun run start:bun    # = bun dist/main.js
 2. 启动一次：
 
 ```bash
-pnpm run start:prod
+pnpm run start # 或者bun
 ```
 
 3. 观察启动日志，会创建表并生成默认超级管理员，日志中会打印初始密码（同时写入 `adminInfo/info.json`）：
