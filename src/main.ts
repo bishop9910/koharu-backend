@@ -6,6 +6,7 @@ import { AppLogger } from './log/logger.module.js';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { dump } from 'js-yaml';
+import { version } from './version.js';
 
 async function bootstrap() {
 
@@ -14,7 +15,7 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle('Koharu API')
     .setDescription('Koharu 后端服务 API 文档')
-    .setVersion('0.0.2')
+    .setVersion(version)
     .addBearerAuth() // 添加 JWT 认证支持
     .addTag('auth', '认证模块')
     .addTag('users', '用户模块')

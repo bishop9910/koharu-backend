@@ -1,3 +1,3 @@
 // src/version.ts
 
-const version: string = "0.0.2";
+export const version: string = "0.0.2";
