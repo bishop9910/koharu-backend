@@ -1,5 +1,5 @@
 // src/album/tag.controller.ts
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -8,6 +8,7 @@ import {
   ApiResponse,
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
 } from '@nestjs/swagger';
 import { AlbumService } from './album.service.js';
 import { CreateTagDto } from './dto/create-tag.dto.js';
@@ -39,5 +40,19 @@ export class TagController {
   @ApiForbiddenResponse({ description: '权限不足：需要 MODERATOR 及以上角色' })
   async create(@Body() dto: CreateTagDto) {
     return this.albumService.createTag(dto.name);
+  }
+
+  @Delete(':id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, MinRoleGuard)
+  @MinRole(Role.ADMIN)
+  @ApiOperation({ summary: '删除标签', description: '仅管理员及以上可删除，会同时从引用该标签的图集中移除' })
+  @ApiOkResponse({ description: '删除成功', schema: { type: 'object', properties: { message: { type: 'string', example: '标签已删除' } } } })
+  @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
+  @ApiForbiddenResponse({ description: '权限不足：需要 ADMIN 及以上角色' })
+  @ApiNotFoundResponse({ description: '标签不存在' })
+  async remove(@Param('id') id: string) {
+    await this.albumService.removeTag(id);
+    return { message: '标签已删除' };
   }
 }

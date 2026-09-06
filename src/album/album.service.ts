@@ -276,6 +276,25 @@ export class AlbumService {
     return await this.tagRepository.find({ order: { name: 'ASC' } });
   }
 
+  async removeTag(id: string): Promise<void> {
+    const tag = await this.tagRepository.findOne({ where: { id } });
+    if (!tag) throw new NotFoundException('标签不存在');
+
+    const albums = await this.albumRepository
+      .createQueryBuilder('album')
+      .leftJoinAndSelect('album.tags', 'tag')
+      .where('tag.id = :tagId', { tagId: id })
+      .getMany();
+
+    for (const album of albums) {
+      album.tags = album.tags.filter((t) => t.id !== id);
+      await this.albumRepository.save(album);
+    }
+
+    await this.tagRepository.remove(tag);
+    this.logger.log(`标签 ${tag.name} 已被删除`);
+  }
+
   async removeAllByUser(userId: string): Promise<void> {
     const albums = await this.albumRepository.find({ where: { ownerId: userId } });
     for (const album of albums) {
