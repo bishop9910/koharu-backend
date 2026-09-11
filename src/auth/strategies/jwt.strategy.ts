@@ -4,11 +4,12 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { UserService } from '../../user/user.service.js';
+import { JwtPayload, AuthenticatedUser } from '../interfaces/jwt-payload.interface.js';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
-    private configService: ConfigService,
+    configService: ConfigService,
     private userService: UserService,
   ) {
     super({
@@ -18,13 +19,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: any) {
-    const user = await this.userService.findOne(payload.sub);
+  async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
+    if (!payload?.sub) {
+      throw new UnauthorizedException('无效的令牌');
+    }
+
+    const user = await this.userService.findByIdForAuth(payload.sub);
     if (!user) {
       throw new UnauthorizedException('用户不存在或已被删除');
     }
-    
-    // 将用户信息附加到 request.user 上，供后续的 Controller 和 MinRoleGuard 使用
+
+    // 角色与用户名一律从数据库读取，绝不使用 JWT 载荷中的任何权限信息，
+    // 供后续的 Controller、MinRoleGuard 与业务服务使用。
     return {
       id: user.id,
       username: user.username,

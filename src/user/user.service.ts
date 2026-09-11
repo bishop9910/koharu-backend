@@ -103,6 +103,17 @@ export class UserService {
     return user;
   }
 
+  /**
+   * 供鉴权链路（JwtStrategy / AuthService 刷新）使用的按 id 查询。
+   * 与 findOne 的区别：查不到（含软删除）时返回 null 而非抛 404，
+   * 由调用方统一抛出 401。
+   */
+  async findByIdForAuth(id: string): Promise<User | null> {
+    return await this.userRepository.findOne({
+      where: { id },
+    });
+  }
+
   async findByUsername(username: string): Promise<User | null> {
     return await this.userRepository.findOne({
       where: { username },
