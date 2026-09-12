@@ -10,6 +10,7 @@ import { User } from '../entities/user.entity.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { JwtPayload } from './interfaces/jwt-payload.interface.js';
+import { RsaService } from './rsa.service.js';
 
 @Injectable()
 export class AuthService {
@@ -19,18 +20,36 @@ export class AuthService {
     private userService: UserService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private rsaService: RsaService,
   ) {}
 
   /**
    * 验证账号密码
    */
   async validateUser(loginDto: LoginDto): Promise<any> {
+    let plainPassword = loginDto.password;
+    if (loginDto.encrypted) {
+      try {
+        plainPassword = this.rsaService.decrypt(loginDto.password);
+      } catch {
+        this.logger.warn(`用户 ${loginDto.username} 的登录密码解密失败`);
+        return null;
+      }
+    }
+
     const user = await this.userService.findByUsername(loginDto.username);
-    if (user && (await bcrypt.compare(loginDto.password, user.password))) {
+    if (user && (await bcrypt.compare(plainPassword, user.password))) {
       const { password, ...result } = user;
       return result;
     }
     return null;
+  }
+
+  /**
+   * 返回用于加密登录密码的 RSA 公钥
+   */
+  getPublicKey(): string {
+    return this.rsaService.getPublicKey();
   }
 
   /**

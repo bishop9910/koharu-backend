@@ -4,6 +4,10 @@
 /build
 /adminInfo
 
+# frontend build output (served by Nest)
+/frontend/dist
+/frontend/node_modules
+
 # Config
 /configs
 

@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service.js';
 import { AuthController } from './auth.controller.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
+import { RsaService } from './rsa.service.js';
 import { UserModule } from '../user/user.module.js';
 import { PassportModule } from '@nestjs/passport'
 
@@ -36,7 +37,7 @@ const INSECURE_FALLBACK_SECRET = 'default_secret';
     PassportModule.register({ defaultStrategy: 'jwt' }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, RsaService],
   exports:  [AuthService, PassportModule, JwtModule], 
 })
 export class AuthModule {}

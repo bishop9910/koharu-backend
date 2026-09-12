@@ -1,6 +1,7 @@
 // src/auth/auth.controller.ts
 import { 
   Controller, 
+  Get,
   Post, 
   Body, 
   HttpCode, 
@@ -22,6 +23,28 @@ import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
+
+  /**
+   * 获取登录密码加密公钥
+   * GET /auth/public-key
+   */
+  @Get('public-key')
+  @ApiOperation({ 
+    summary: '获取登录密码加密公钥', 
+    description: '返回 RSA 公钥（SPKI PEM）。前端用 RSA-OAEP(SHA-256) 加密登录密码后，再以 encrypted=true 提交 /auth/login' 
+  })
+  @ApiOkResponse({
+    description: 'RSA 公钥',
+    schema: {
+      type: 'object',
+      properties: {
+        publicKey: { type: 'string', description: 'RSA 公钥（PEM 格式）' }
+      }
+    }
+  })
+  getPublicKey() {
+    return { publicKey: this.authService.getPublicKey() };
+  }
 
   /**
    * 登录
