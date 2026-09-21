@@ -14,7 +14,8 @@ import {
   ApiOperation, 
   ApiOkResponse, 
   ApiResponse,
-  ApiUnauthorizedResponse
+  ApiUnauthorizedResponse,
+  ApiBadRequestResponse
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -76,7 +77,7 @@ export class AuthController {
       }
     }
   })
-  @ApiUnauthorizedResponse({ description: '用户名或密码错误' })
+  @ApiBadRequestResponse({ description: '用户名或密码错误' })
   async login(@Body() loginDto: LoginDto) {
     const user = await this.authService.validateUser(loginDto);
     if (!user) {
