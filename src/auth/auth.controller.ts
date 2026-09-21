@@ -6,7 +6,8 @@ import {
   Body, 
   HttpCode, 
   HttpStatus, 
-  UnauthorizedException
+  UnauthorizedException,
+  BadRequestException
 } from '@nestjs/common';
 import { 
   ApiTags, 
@@ -79,7 +80,7 @@ export class AuthController {
   async login(@Body() loginDto: LoginDto) {
     const user = await this.authService.validateUser(loginDto);
     if (!user) {
-      throw new UnauthorizedException('用户名或密码错误');
+      throw new BadRequestException('用户名或密码错误');
     }
     return this.authService.login(user);
   }
