@@ -15,6 +15,7 @@ import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import { Role } from '../enums/role.enum.js';
 import { canManageTarget, assignableRoles } from '../common/utils/role.util.js';
+import { RsaService } from '../common/security/rsa.service.js';
 import { ImageService } from '../image/image.service.js';
 import { AvatarService } from '../avatar/avatar.service.js';
 import { AlbumService } from '../album/album.service.js';
@@ -29,6 +30,7 @@ export class UserService {
     private imageService: ImageService,
     private avatarService: AvatarService,
     private albumService: AlbumService,
+    private rsaService: RsaService,
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<Omit<User, 'password'>> {
@@ -42,7 +44,11 @@ export class UserService {
     }
 
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(createUserDto.password, salt);
+    const plainPassword = this.decryptPassword(createUserDto.password, createUserDto.encrypted);
+    if (plainPassword.length < 6) {
+      throw new BadRequestException('密码至少6个字符');
+    }
+    const hashedPassword = await bcrypt.hash(plainPassword, salt);
 
     const user = this.userRepository.create({
       username: createUserDto.username,
@@ -244,24 +250,46 @@ export class UserService {
     return user as any;
   }
 
-  async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<{ message: string }> {
+  async changePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string,
+    encrypted = false,
+  ): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('用户不存在');
     }
 
-    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    const plainOldPassword = this.decryptPassword(oldPassword, encrypted);
+    const plainNewPassword = this.decryptPassword(newPassword, encrypted);
+    if (plainNewPassword.length < 6) {
+      throw new BadRequestException('新密码至少需要6个字符');
+    }
+
+    const isMatch = await bcrypt.compare(plainOldPassword, user.password);
     if (!isMatch) {
       this.logger.warn(`用户 ${user.username} 尝试修改密码失败：旧密码错误`);
       throw new BadRequestException('原密码错误');
     }
 
     const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
+    user.password = await bcrypt.hash(plainNewPassword, salt);
     await this.userRepository.save(user);
 
     this.logger.log(`用户 ${user.username} 成功修改了密码`);
     return { message: '密码修改成功' };
+  }
+
+  private decryptPassword(value: string, encrypted?: boolean): string {
+    if (!encrypted) {
+      return value;
+    }
+    try {
+      return this.rsaService.decrypt(value);
+    } catch {
+      throw new BadRequestException('密码解密失败，请使用正确的公钥加密');
+    }
   }
 
   private sanitize(user: User): Omit<User, 'password'> {

@@ -7,6 +7,7 @@ import { UserController } from './user.controller.js';
 import { ImageModule } from '../image/image.module.js';
 import { AvatarModule } from '../avatar/avatar.module.js';
 import { AlbumModule } from '../album/album.module.js';
+import { SecurityModule } from '../common/security/security.module.js';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AlbumModule } from '../album/album.module.js';
     ImageModule,
     AvatarModule,
     AlbumModule,
+    SecurityModule,
   ],
   controllers: [UserController],
   providers: [UserService],

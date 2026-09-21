@@ -10,7 +10,7 @@ import { User } from '../entities/user.entity.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { JwtPayload } from './interfaces/jwt-payload.interface.js';
-import { RsaService } from './rsa.service.js';
+import { RsaService } from '../common/security/rsa.service.js';
 
 @Injectable()
 export class AuthService {

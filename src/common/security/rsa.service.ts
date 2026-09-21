@@ -1,4 +1,4 @@
-// src/auth/rsa.service.ts
+// src/common/security/rsa.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import * as fs from 'fs';

@@ -5,8 +5,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service.js';
 import { AuthController } from './auth.controller.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
-import { RsaService } from './rsa.service.js';
 import { UserModule } from '../user/user.module.js';
+import { SecurityModule } from '../common/security/security.module.js';
 import { PassportModule } from '@nestjs/passport'
 
 const INSECURE_FALLBACK_SECRET = 'default_secret';
@@ -15,6 +15,7 @@ const INSECURE_FALLBACK_SECRET = 'default_secret';
 @Module({
   imports: [
     UserModule, // 引入 UserModule 以使用 UserService
+    SecurityModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
@@ -37,7 +38,7 @@ const INSECURE_FALLBACK_SECRET = 'default_secret';
     PassportModule.register({ defaultStrategy: 'jwt' }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, RsaService],
+  providers: [AuthService, JwtStrategy],
   exports:  [AuthService, PassportModule, JwtModule], 
 })
 export class AuthModule {}

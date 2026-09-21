@@ -94,7 +94,7 @@ export class UserController {
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiResponse({ status: 400, description: '原密码错误 或 新密码不符合长度要求' })
   async changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
-    return this.userService.changePassword(req.user.id, dto.oldPassword, dto.newPassword);
+    return this.userService.changePassword(req.user.id, dto.oldPassword, dto.newPassword, dto.encrypted);
   }
 
   @Get(':id/public')
