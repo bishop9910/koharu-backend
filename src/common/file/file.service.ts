@@ -83,6 +83,30 @@ export class FileService {
     return `/${relativePath}`;
   }
 
+  /**
+   * 上传根目录（绝对路径）。所有相对路径都以它为根解析，
+   * 因此任何要落盘的文件都必须写在上传目录之内，否则后续读取会找不到。
+   */
+  getUploadRoot(): string {
+    return this.uploadRoot;
+  }
+
+  /**
+   * 以「相对路径」写入文件（自动创建父目录）。
+   * 与 readFile / deleteFile 共用 resolveSafePath，保证写入位置与读取位置永远是同一个根。
+   */
+  async writeBuffer(relativePath: string, buffer: Buffer): Promise<string> {
+    const absolutePath = this.resolveSafePath(relativePath);
+    try {
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, buffer);
+    } catch (error: any) {
+      this.logger.error(`文件写入磁盘失败: ${absolutePath}`, error.stack);
+      throw new BadRequestException('文件保存失败，请检查服务器磁盘权限');
+    }
+    return absolutePath;
+  }
+
   async deleteFile(relativePath: string): Promise<boolean> {
     if (!relativePath) return false;
     const absolutePath = this.resolveSafePath(relativePath);

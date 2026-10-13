@@ -163,9 +163,10 @@ export class ImageController {
   @Get(':id/thumbnail')
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: '获取缩略图流', description: '已过审图片游客可预览；未过审图片仅审核员及以上可查看' })
-  @ApiResponse({ status: 200, description: '返回图片二进制流', content: { 'image/jpeg': { schema: { type: 'string', format: 'binary' } } } })
+  @ApiResponse({ status: 200, description: '返回图片二进制流（PNG/WebP 原图产出 WebP 缩略图，其余格式产出 JPEG）', content: { 'image/webp': { schema: { type: 'string', format: 'binary' } }, 'image/jpeg': { schema: { type: 'string', format: 'binary' } } } })
   @ApiResponse({ status: 403, description: '无权查看未通过审核的图片' })
   @ApiResponse({ status: 404, description: '图片不存在' })
+  @ApiResponse({ status: 500, description: '原图文件丢失或完整性校验失败，无法生成缩略图' })
   async getThumbnail(@Param('id', ParseUUIDPipe) id: string, @Req() req: any, @Res() res: Response) {
     const { buffer, mimeType } = await this.imageService.getThumbnail(id, req.user);
     res.set({ 'Content-Type': mimeType, 'Cache-Control': 'public, max-age=86400' });

@@ -12,7 +12,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual, IsNull } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import sharp from 'sharp';
@@ -26,7 +25,8 @@ import { isStaff, canManageTarget } from '../common/utils/role.util.js';
 @Injectable()
 export class ImageService {
   private readonly logger = new Logger(ImageService.name);
-  private readonly cacheRoot: string;
+  /** 缩略图缓存目录的「数据库相对路径」，形如 /image_cache。写入与读取都以它为前缀。 */
+  private readonly cacheDir: string;
   private readonly cacheTimeMs: number;
   private readonly signatureSecret: string;
 
@@ -36,9 +36,37 @@ export class ImageService {
     private fileService: FileService,
     private configService: ConfigService,
   ) {
-    this.cacheRoot = path.resolve(process.cwd(), this.configService.get<string>('server.image_lib.cache_path', './image_cache'));
+    this.cacheDir = this.resolveCacheDir();
     this.cacheTimeMs = this.configService.get<number>('server.image_lib.cache_time', 24 * 60 * 60 * 1000);
     this.signatureSecret = this.configService.get<string>('server.token.key', 'default_secret');
+  }
+
+  /**
+   * 计算缩略图缓存目录的数据库相对路径（如 /image_cache）。
+   *
+   * FileService 统一以 upload.dir 为根解析相对路径，所以缩略图必须落在上传目录之内，
+   * 否则会出现「文件写在这里、读取却去那里找」的 ENOENT（缩略图接口永久 500）。
+   * 历史配置 server.image_lib.cache_path: "./image_cache" 就在上传目录之外，
+   * 此时回退到 <upload.dir>/image_cache 并打警告，保证写入位置与读取位置一致。
+   */
+  private resolveCacheDir(): string {
+    const uploadRoot = this.fileService.getUploadRoot();
+    const fallback = path.join(uploadRoot, 'image_cache');
+    const configured = path.resolve(
+      process.cwd(),
+      this.configService.get<string>('server.image_lib.cache_path', fallback),
+    );
+
+    const relative = path.relative(uploadRoot, configured).split(path.sep).join('/');
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      this.logger.warn(
+        `配置项 server.image_lib.cache_path (${configured}) 不在上传目录 ${uploadRoot} 之内，` +
+          `已回退为 ${fallback}。请把 cache_path 指向上传目录下的子目录（推荐 ./uploads/image_cache）。`,
+      );
+      return '/image_cache';
+    }
+
+    return `/${relative}`;
   }
 
   async upload(file: Express.Multer.File, currentUser?: any, ip?: string): Promise<Image> {
@@ -259,12 +287,10 @@ export class ImageService {
     }
 
     const thumbFilename = `thumb_${nameWithoutExt}${thumbExt}`;
-    const thumbRelativePath = `/image_cache/${thumbFilename}`;
-    const thumbAbsolutePath = path.join(this.cacheRoot, thumbFilename);
+    const thumbRelativePath = `${this.cacheDir}/${thumbFilename}`;
 
-    await fs.mkdir(this.cacheRoot, { recursive: true });
-
-    await processor.toFile(thumbAbsolutePath);
+    // 统一走 FileService 写入，保证「写到哪儿」和「从哪儿读」是同一个根
+    await this.fileService.writeBuffer(thumbRelativePath, await processor.toBuffer());
 
     return thumbRelativePath;
   }
@@ -277,11 +303,21 @@ export class ImageService {
       throw new ForbiddenException('无权查看未通过审核的图片');
     }
 
-    const thumbExists = await this.fileService.exists(image.thumbnailPath);
+    let thumbRelativePath = image.thumbnailPath;
+
+    const thumbExists = await this.fileService.exists(thumbRelativePath);
     if (!thumbExists) {
       this.logger.warn(`缩略图缓存丢失，触发自愈逻辑，准备从原图重新生成: ${image.id}`);
 
-      const originalBuffer = await this.fileService.readFile(image.path);
+      let originalBuffer: Buffer;
+      try {
+        originalBuffer = await this.fileService.readFile(image.path);
+      } catch (error: any) {
+        this.logger.error(
+          `原图文件丢失，无法自愈缩略图！图片ID: ${image.id}, 原图路径: ${image.path}, 原因: ${error?.message}`,
+        );
+        throw new InternalServerErrorException('原图文件已丢失，无法生成缩略图，请联系管理员');
+      }
 
       const currentMd5 = calculateMD5(originalBuffer);
       if (currentMd5 !== image.md5) {
@@ -289,13 +325,19 @@ export class ImageService {
         throw new InternalServerErrorException('原图文件已损坏或被篡改，无法生成缩略图，请联系管理员');
       }
 
-      await this.generateThumbnail(originalBuffer, path.basename(image.path), image.mimeType);
+      // 用「本次刚生成」的路径去读取，避免数据库里的历史路径与生成路径不一致而再次 ENOENT
+      const regeneratedPath = await this.generateThumbnail(originalBuffer, path.basename(image.path), image.mimeType);
+      if (regeneratedPath !== thumbRelativePath) {
+        this.logger.warn(`缩略图路径已修正: ${thumbRelativePath} -> ${regeneratedPath} (图片ID: ${image.id})`);
+        await this.imageRepository.update(image.id, { thumbnailPath: regeneratedPath });
+      }
+      thumbRelativePath = regeneratedPath;
       this.logger.log(`缩略图自愈生成成功: ${image.id}`);
     }
 
     return {
-      buffer: await this.fileService.readFile(image.thumbnailPath),
-      mimeType: this.mimeFromPath(image.thumbnailPath),
+      buffer: await this.fileService.readFile(thumbRelativePath),
+      mimeType: this.mimeFromPath(thumbRelativePath),
     };
   }
 

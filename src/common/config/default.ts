@@ -19,8 +19,8 @@ export const default_config = {
       refresh_timeout: 8 * 24 * 60 * 60 * 1000 // 8天
     },
     image_lib: {
-      path: "./images",
-      cache_path : "./image_cache",
+      path: "./images", // 已废弃：原图实际写入 upload.dir 下的 images 子目录, 此键仅为兼容旧配置保留
+      cache_path : "./uploads/image_cache", // 缩略图缓存目录, 必须位于 upload.dir 之内, 否则会回退为 <upload.dir>/image_cache
       cache_time: 24 * 60 * 60 * 1000, // 毫秒, 一天, 签字好的image生成hash副本和缩略图放在缓存, 存1天
       signature: {
         expire_in: 24 * 60 * 60 * 1000,

@@ -3,7 +3,7 @@
 本文档介绍如何把 Koharu Backend 部署到 Linux 服务器（以 Ubuntu/Debian 为例）。
 
 - 技术栈：NestJS (Node.js 22, ESM) + PostgreSQL
-- 存储：文件落到本地磁盘（`images` / `image_cache` / `uploads`），元数据入库
+- 存储：文件落到本地磁盘（`uploads/` 下的 `images` / `image_cache` / `avatars`），元数据入库
 - 运行：单进程，推荐 PM2 或 systemd 守护
 
 ---
@@ -246,7 +246,7 @@ pnpm run start # 或者bun
 
 ## 9. 进程守护
 
-> **重要**：程序用 `process.cwd()` 定位 `configs/ images/ image_cache/ uploads/ logs/ adminInfo/`，所以**必须在项目根目录启动**。
+> **重要**：程序用 `process.cwd()` 定位 `configs/ uploads/ logs/ adminInfo/`（原图、缩略图、头像都在 `uploads/` 之下），所以**必须在项目根目录启动**。
 
 ### 方式 A：PM2（推荐）
 
@@ -369,14 +369,19 @@ sudo certbot --nginx -d your-domain.com
 
 ```
 项目根目录/
-├── configs/         # 配置文件（自动生成）
-├── images/          # 原图
-├── image_cache/     # 缩略图缓存
-├── uploads/         # 头像等上传文件
-├── logs/            # 应用日志
-├── frontend/dist/   # 前端构建产物（由 Nest 托管在根路径，可选）
-└── adminInfo/       # 初始管理员密码（仅 seed 时生成）
+├── configs/              # 配置文件（自动生成）
+├── uploads/              # 唯一的上传根目录（upload.dir），所有用户文件都在它之下
+│   ├── images/           # 原图
+│   ├── image_cache/      # 缩略图缓存
+│   └── avatars/          # 头像
+├── logs/                 # 应用日志
+├── frontend/dist/        # 前端构建产物（由 Nest 托管在根路径，可选）
+└── adminInfo/            # 初始管理员密码（仅 seed 时生成）
 ```
+
+> **缩略图缓存的位置很关键**：`server.image_lib.cache_path` 必须位于 `upload.dir` 之内（推荐 `./uploads/image_cache`）。
+> 读写统一以 `upload.dir` 为根，若配到上传目录之外（历史默认值 `./image_cache`），会出现缩略图接口永久 500
+> 的 `ENOENT`（详见第 17 节）。
 
 ```bash
 sudo chown -R www-data:www-data /opt/koharu-backend
@@ -393,7 +398,7 @@ pg_dump -U nest_user -h localhost -Fc koharu > /backup/koharu_$(date +%F).dump
 
 # 文件（原图/缩略图/头像）
 tar -czf /backup/koharu_files_$(date +%F).tar.gz \
-  -C /opt/koharu-backend images image_cache uploads
+  -C /opt/koharu-backend uploads
 ```
 
 建议用 cron 每日执行，并保留最近 N 份。
@@ -441,7 +446,7 @@ curl -s -X POST http://127.0.0.1:3000/api/auth/login \
 - [ ] 数据库仅允许内网/本机连接，账号密码为强密码
 - [ ] Nginx 已上 HTTPS，3000 端口不暴露公网
 - [ ] 已配置定时备份
-- [ ] 已配置日志轮转与磁盘告警（`logs/`、`images/` 会持续增长）
+- [ ] 已配置日志轮转与磁盘告警（`logs/`、`uploads/` 会持续增长）
 
 ## 17. 常见问题
 
@@ -469,6 +474,26 @@ ALTER TYPE users_role_enum ADD VALUE IF NOT EXISTS 'SUPER_ADMIN';
 ### 图片/头像上传 413 或超时
 
 检查 Nginx `client_max_body_size`、`proxy_read_timeout` 是否足够（见第 10 节），并确认 `upload.maxSize` 与前端一致。
+
+### 缩略图接口 500，日志出现 `ENOENT ... stat '.../uploads/image_cache/thumb_xxx.webp'`
+
+这是「缩略图写在一个地方、读在另一个地方」导致的，与前端无关。典型日志是三条连续记录：
+
+```
+warn  [ImageService] 缩略图缓存丢失，触发自愈逻辑，准备从原图重新生成: <image-id>
+info  [ImageService] 缩略图自愈生成成功: <image-id>
+error [ExceptionsHandler] Error: ENOENT: no such file or directory, stat '.../uploads/image_cache/thumb_xxx.webp' {}
+```
+
+原因：`server.image_lib.cache_path` 指到了 `upload.dir` **之外**（历史默认值 `./image_cache`），
+缩略图被写到 `<项目根>/image_cache/`；而所有读取都以 `upload.dir`（`./uploads`）为根，
+于是自愈刚写完就找不到文件，接口永久 500，且每次请求都刷这三条日志。
+
+修复：
+
+1. 把 `server.image_lib.cache_path` 改成上传目录之内的路径（推荐 `./uploads/image_cache`）后重启；
+2. 即使不改配置，新版本也会在启动时 WARN 并自动回退到 `<upload.dir>/image_cache`，接口立即恢复正常；
+3. 升级后首次访问某张图会自动重建它的缩略图，根目录下遗留的 `image_cache/` 可以手动删除。
 
 ### 每日上传限流按哪个时区重置
 

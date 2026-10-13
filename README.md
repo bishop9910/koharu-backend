@@ -43,7 +43,7 @@
 
 - **安全认证与授权**：JWT 双 Token（Access + Refresh），配合**五级 RBAC** 与等级守卫（`MinRoleGuard`）。
 - **图片投稿与审核**：
-  - 原图与缩略图分离存储（`/images` & `/image_cache`），基于 `sharp` 自动裁剪压缩。
+  - 原图与缩略图分离存储（都在上传根目录下：`uploads/images` & `uploads/image_cache`），基于 `sharp` 自动裁剪压缩。
   - 审核流水线：`pending → approved / rejected`；被拒或已过审图片可**重新投稿一次**，重置为待审核。
   - HMAC-SHA256 签名防盗链下载、MD5 完整性校验。
   - 同一 IP 每天上传上限 500 张（ADMIN/SUPER_ADMIN 不限）。
@@ -184,8 +184,8 @@ server:
     timeout: 86400000                # Access Token 有效期（毫秒，1 天）
     refresh_timeout: 691200000       # Refresh Token 有效期（毫秒，8 天）
   image_lib:
-    path: "./images"                 # 原图存储目录
-    cache_path: "./image_cache"      # 缩略图缓存目录
+    path: "./images"                 # 已废弃（仅为兼容旧配置保留）：原图实际写在 upload.dir 下的 images 子目录
+    cache_path: "./uploads/image_cache"  # 缩略图缓存目录（必须位于 upload.dir 之内，否则回退为 <upload.dir>/image_cache 并告警）
     cache_time: 86400000             # 签名下载链接有效期（毫秒）
     signature:
       expire_in: 86400000            # 签名过期时间（毫秒）
