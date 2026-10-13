@@ -10,6 +10,7 @@ import {
   UseGuards,
   Req,
   Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -113,7 +114,7 @@ export class UserController {
     },
   })
   @ApiNotFoundResponse({ description: '用户不存在' })
-  async getPublicProfile(@Param('id') id: string) {
+  async getPublicProfile(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.findPublicProfile(id);
   }
 
@@ -125,7 +126,7 @@ export class UserController {
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权查看其他用户的详细隐私信息' })
   @ApiNotFoundResponse({ description: '用户不存在' })
-  async findOne(@Param('id') id: string, @Req() req: any) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.userService.getUserDetail(id, req.user);
   }
 
@@ -138,7 +139,7 @@ export class UserController {
   @ApiForbiddenResponse({ description: '无权修改其他用户的信息' })
   @ApiNotFoundResponse({ description: '用户不存在' })
   async update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateUserDto: UpdateUserDto,
     @Req() req: any,
   ) {
@@ -156,7 +157,7 @@ export class UserController {
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权删除该用户' })
   @ApiNotFoundResponse({ description: '用户不存在' })
-  async remove(@Param('id') id: string, @Req() req: any) {
+  async remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     await this.userService.remove(id, req.user);
     return { message: '用户已删除' };
   }
@@ -171,7 +172,7 @@ export class UserController {
   @ApiForbiddenResponse({ description: '无权修改该用户的角色' })
   @ApiNotFoundResponse({ description: '用户不存在' })
   async updateRole(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserRoleDto,
     @Req() req: any,
   ) {

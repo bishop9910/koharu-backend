@@ -41,7 +41,10 @@ async function bootstrap() {
 
   const config = new DocumentBuilder()
     .setTitle('Koharu API')
-    .setDescription('Koharu 后端服务 API 文档')
+    .setDescription(
+      'Koharu 后端服务 API 文档\n\n' +
+        '全局约定：所有接口统一前缀 `/api`；路径参数 `:id` / `:userId` 必须为 UUID，格式非法时直接返回 400，不会进入业务逻辑。',
+    )
     .setVersion(version)
     .addBearerAuth() // 添加 JWT 认证支持
     .addTag('auth', '认证模块')

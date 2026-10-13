@@ -13,6 +13,7 @@ import {
   Res,
   Req,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
@@ -84,7 +85,7 @@ export class ImageController {
   @ApiResponse({ status: 400, description: '拒绝时必须提供原因，或审核状态非法' })
   @ApiResponse({ status: 403, description: '权限不足' })
   async reviewImage(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReviewImageDto,
     @Req() req: any,
   ) {
@@ -110,7 +111,7 @@ export class ImageController {
   })
   @ApiResponse({ status: 400, description: '未找到文件、图片状态不允许修改、或已达修改次数上限' })
   @ApiResponse({ status: 403, description: '无权修改该图片' })
-  async modify(@Param('id') id: string, @UploadedFile() file: Express.Multer.File, @Req() req: any) {
+  async modify(@Param('id', ParseUUIDPipe) id: string, @UploadedFile() file: Express.Multer.File, @Req() req: any) {
     if (!file) throw new BadRequestException('未找到上传的文件');
     const image = await this.imageService.modify(id, file, req.user);
     return {
@@ -165,7 +166,7 @@ export class ImageController {
   @ApiResponse({ status: 200, description: '返回图片二进制流', content: { 'image/jpeg': { schema: { type: 'string', format: 'binary' } } } })
   @ApiResponse({ status: 403, description: '无权查看未通过审核的图片' })
   @ApiResponse({ status: 404, description: '图片不存在' })
-  async getThumbnail(@Param('id') id: string, @Req() req: any, @Res() res: Response) {
+  async getThumbnail(@Param('id', ParseUUIDPipe) id: string, @Req() req: any, @Res() res: Response) {
     const { buffer, mimeType } = await this.imageService.getThumbnail(id, req.user);
     res.set({ 'Content-Type': mimeType, 'Cache-Control': 'public, max-age=86400' });
     res.send(buffer);
@@ -185,7 +186,7 @@ export class ImageController {
       },
     },
   })
-  async generateSignedUrl(@Param('id') id: string, @Req() req: Request) {
+  async generateSignedUrl(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const signedUrl = this.imageService.generateSignedUrl(id, baseUrl);
     return {
@@ -202,7 +203,7 @@ export class ImageController {
   @ApiResponse({ status: 400, description: '签名无效或已过期' })
   @ApiResponse({ status: 403, description: '图片已被拒绝或无权下载未过审图片' })
   async downloadOriginal(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Query() query: DownloadImageQueryDto,
     @Req() req: any,
     @Res() res: Response,
@@ -222,7 +223,7 @@ export class ImageController {
   @ApiOkResponse({ type: Image, description: '返回图片详细信息' })
   @ApiResponse({ status: 403, description: '无权查看未通过审核的图片' })
   @ApiResponse({ status: 404, description: '图片不存在' })
-  async findOne(@Param('id') id: string, @Req() req: any) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return await this.imageService.findOne(id, req.user);
   }
 
@@ -233,7 +234,7 @@ export class ImageController {
   @ApiOkResponse({ description: '删除成功', schema: { type: 'object', properties: { message: { type: 'string', example: '图片及缓存已彻底删除' } } } })
   @ApiResponse({ status: 403, description: '无权删除此图片' })
   @ApiResponse({ status: 404, description: '图片不存在' })
-  async remove(@Param('id') id: string, @Req() req: any) {
+  async remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     await this.imageService.remove(id, req.user);
     return { message: '图片及缓存已彻底删除' };
   }

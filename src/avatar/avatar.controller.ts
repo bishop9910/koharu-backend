@@ -12,6 +12,7 @@ import {
   Req,
   UseGuards,
   Body,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
@@ -62,7 +63,7 @@ export class AvatarController {
   @ApiResponse({ status: 409, description: '已有待审核的头像' })
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   async submit(
-    @Param('userId') userId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
     @UploadedFile() file: Express.Multer.File,
     @Req() req: any,
   ) {
@@ -92,7 +93,7 @@ export class AvatarController {
   @ApiResponse({ status: 403, description: '权限不足' })
   @ApiResponse({ status: 404, description: '该用户没有待审核的头像' })
   async review(
-    @Param('userId') userId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
     @Body() dto: ReviewAvatarDto,
     @Req() req: any,
   ) {
@@ -113,7 +114,7 @@ export class AvatarController {
   })
   @ApiResponse({ status: 400, description: '该用户暂无头像或文件读取失败' })
   async getImage(
-    @Param('userId') userId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
     @Res() res: Response,
   ) {
     const avatar = await this.avatarService.findByUserId(userId);
@@ -154,7 +155,7 @@ export class AvatarController {
   @ApiResponse({ status: 404, description: '该用户暂无头像' })
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权删除该用户的头像' })
-  async remove(@Param('userId') userId: string, @Req() req: any) {
+  async remove(@Param('userId', ParseUUIDPipe) userId: string, @Req() req: any) {
     await this.avatarService.remove(userId, req.user);
     return { message: '头像已删除' };
   }

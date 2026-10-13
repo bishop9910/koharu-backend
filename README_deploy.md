@@ -374,6 +374,7 @@ sudo certbot --nginx -d your-domain.com
 ├── image_cache/     # 缩略图缓存
 ├── uploads/         # 头像等上传文件
 ├── logs/            # 应用日志
+├── frontend/dist/   # 前端构建产物（由 Nest 托管在根路径，可选）
 └── adminInfo/       # 初始管理员密码（仅 seed 时生成）
 ```
 
@@ -417,17 +418,19 @@ sudo systemctl restart koharu-backend
 ## 15. 健康检查
 
 ```bash
-# 根路径欢迎页
+# 根路径（托管前端产物，未构建前端时返回欢迎文本）
 curl -s http://127.0.0.1:3000/
 
 # Swagger 文档可用性
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/api
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/api-doc
 
 # 登录冒烟测试（确认返回 accessToken）
-curl -s -X POST http://127.0.0.1:3000/auth/login \
+curl -s -X POST http://127.0.0.1:3000/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<初始密码>"}'
 ```
+
+> 所有业务接口都带全局前缀 `/api`（如 `GET /api/images`）；路径参数 `:id` / `:userId` 必须为 UUID，格式非法会返回 `400` 而非 `500`。
 
 ## 16. 上线安全清单
 
@@ -473,4 +476,4 @@ ALTER TYPE users_role_enum ADD VALUE IF NOT EXISTS 'SUPER_ADMIN';
 
 ---
 
-部署完成后，Swagger 文档默认在 `http://your-domain.com/api`，OpenAPI YAML 在 `http://your-domain.com/api-yaml`。
+部署完成后，Swagger 文档默认在 `http://your-domain.com/api-doc`，OpenAPI YAML 在 `http://your-domain.com/api-yaml`。

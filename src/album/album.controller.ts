@@ -10,6 +10,7 @@ import {
   Query,
   Req,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -68,7 +69,7 @@ export class AlbumController {
   @ApiOperation({ summary: '获取图集详情', description: '包含完整图片与标签；私有图集仅本人或管理员可见' })
   @ApiOkResponse({ description: '图集详情' })
   @ApiNotFoundResponse({ description: '图集不存在' })
-  async findOne(@Param('id') id: string, @Req() req: any) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.albumService.findOne(id, req.user);
   }
 
@@ -80,7 +81,7 @@ export class AlbumController {
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权修改该图集' })
   @ApiNotFoundResponse({ description: '图集不存在' })
-  async update(@Param('id') id: string, @Body() dto: UpdateAlbumDto, @Req() req: any) {
+  async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAlbumDto, @Req() req: any) {
     return this.albumService.update(id, dto, req.user);
   }
 
@@ -92,7 +93,7 @@ export class AlbumController {
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权删除该图集' })
   @ApiNotFoundResponse({ description: '图集不存在' })
-  async remove(@Param('id') id: string, @Req() req: any) {
+  async remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     await this.albumService.remove(id, req.user);
     return { message: '图集已删除' };
   }
@@ -106,7 +107,7 @@ export class AlbumController {
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '权限不足或无权解锁该图集' })
   @ApiNotFoundResponse({ description: '图集不存在' })
-  async unlock(@Param('id') id: string, @Req() req: any) {
+  async unlock(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.albumService.unlock(id, req.user);
   }
 
@@ -118,7 +119,7 @@ export class AlbumController {
   @ApiResponse({ status: 400, description: '图片不存在或未过审' })
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权修改该图集' })
-  async addImages(@Param('id') id: string, @Body() dto: UpdateAlbumImagesDto, @Req() req: any) {
+  async addImages(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAlbumImagesDto, @Req() req: any) {
     return this.albumService.addImages(id, dto.imageIds, req.user);
   }
 
@@ -129,7 +130,7 @@ export class AlbumController {
   @ApiOkResponse({ description: '移除成功，返回图集详情' })
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权修改该图集' })
-  async removeImages(@Param('id') id: string, @Body() dto: UpdateAlbumImagesDto, @Req() req: any) {
+  async removeImages(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAlbumImagesDto, @Req() req: any) {
     return this.albumService.removeImages(id, dto.imageIds, req.user);
   }
 }

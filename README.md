@@ -154,8 +154,10 @@ pnpm run start:prod
 
 启动后：
 
-- API 文档（Swagger UI）：`http://localhost:3000/api`
+- 业务接口：`http://localhost:3000/api/...`（全局前缀 `/api`，例：`GET http://localhost:3000/api/images`）
+- API 文档（Swagger UI）：`http://localhost:3000/api-doc`
 - OpenAPI YAML：`http://localhost:3000/api-yaml`
+- 根路径 `http://localhost:3000/`：托管 `server.frontend_dir` 下的前端产物，非 `/api`、`/api-doc` 的 GET 请求回退到 `index.html`（SPA 路由）
 
 ---
 
@@ -176,6 +178,7 @@ database:
 
 server:
   port: 3000
+  frontend_dir: "./frontend/dist"    # 前端构建产物目录（SPA），挂在根路径
   token:
     key: "default_secret"            # JWT 签名密钥（务必替换）
     timeout: 86400000                # Access Token 有效期（毫秒，1 天）
@@ -226,6 +229,10 @@ cleanup:
 ---
 
 ## 模块与接口概览 (API)
+
+> 下表路径均省略全局前缀 `/api`，例如 `/images` 的实际请求是 `GET /api/images`。
+>
+> 所有路径参数 `:id` / `:userId` 必须为 UUID，格式非法（如 `GET /api/images/1`）由 Controller 层的 `ParseUUIDPipe` 直接返回 `400`，不会进入业务逻辑，也不会打到数据库。
 
 ### auth（认证）
 
@@ -312,6 +319,7 @@ cleanup:
    - 替换 `server.token.key` 为安全的随机字符串。
    - 立即修改默认 `admin` 密码。
 6. **枚举变更注意**：Postgres 枚举（如 `role`、`visibility`）在 `synchronize` 下不会自动修改已存在的枚举类型，上线后请用 Migration 处理枚举/字段变更。
+7. **边界校验（路径参数）**：所有 `:id` / `:userId` 由 Controller 层的 `ParseUUIDPipe` 校验，格式非法（如 `GET /api/images/1`）直接返回 `400`，不会进入 Service 与数据库——避免非法值触发 PostgreSQL 的 `22P02 invalid input syntax for type uuid` 并被包装成 `500`。客户端请始终使用列表/详情接口返回的 `id`（UUID），不要用数组下标或自增序号。
 
 ---
 

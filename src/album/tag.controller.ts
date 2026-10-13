@@ -1,5 +1,5 @@
 // src/album/tag.controller.ts
-import { Controller, Get, Post, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -51,7 +51,7 @@ export class TagController {
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '权限不足：需要 ADMIN 及以上角色' })
   @ApiNotFoundResponse({ description: '标签不存在' })
-  async remove(@Param('id') id: string) {
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
     await this.albumService.removeTag(id);
     return { message: '标签已删除' };
   }
