@@ -1,0 +1,3742 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api": {
+      "get": {
+        "operationId": "AppController_getHello",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "welcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "example": "Welcome to<br/>koharu backend<br/>version: 0.0.2"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "app"
+        ]
+      }
+    },
+    "/api/auth/public-key": {
+      "get": {
+        "description": "返回 RSA 公钥（SPKI PEM）。前端用 RSA-OAEP(SHA-256) 加密登录密码后，再以 encrypted=true 提交 /auth/login",
+        "operationId": "AuthController_getPublicKey",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "RSA 公钥",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "publicKey": {
+                      "type": "string",
+                      "description": "RSA 公钥（PEM 格式）"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "获取登录密码加密公钥",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "description": "使用用户名和密码进行认证，成功后返回 Access Token 和 Refresh Token。失败次数过多会暂时拒绝（同一用户名 15 分钟 5 次 / 同一 IP 20 次，可通过 `auth.login_throttle` 配置）",
+        "operationId": "AuthController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "登录成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accessToken": {
+                      "type": "string",
+                      "description": "用于访问受保护资源的短期 Token"
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                      "description": "用于刷新 Access Token 的长期 Token"
+                    },
+                    "expiresIn": {
+                      "type": "number",
+                      "description": "Access Token 的有效期（毫秒）",
+                      "example": 86400000
+                    },
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "username": {
+                          "type": "string"
+                        },
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "SUPER_ADMIN",
+                            "ADMIN",
+                            "MODERATOR",
+                            "USER",
+                            "GUEST"
+                          ],
+                          "example": "USER"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "用户名或密码错误"
+          },
+          "429": {
+            "description": "登录失败次数过多，请稍后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "number",
+                      "example": 429
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "登录失败次数过多，请 892 秒后再试"
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Too Many Requests"
+                    },
+                    "retryAfterMs": {
+                      "type": "number",
+                      "description": "距离可以再次尝试的毫秒数",
+                      "example": 891540
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "用户登录",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "description": "当 Access Token 过期时，使用有效的 Refresh Token 换取新的 Access Token，无需重新登录",
+        "operationId": "AuthController_refresh",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "刷新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accessToken": {
+                      "type": "string",
+                      "description": "新的 Access Token"
+                    },
+                    "expiresIn": {
+                      "type": "number",
+                      "description": "新 Access Token 的有效期（毫秒）",
+                      "example": 86400000
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "无效的 Refresh Token 或已过期，请重新登录"
+          }
+        },
+        "summary": "刷新 Access Token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/users": {
+      "post": {
+        "description": "创建账号，默认角色为 USER，成功后需前往 /auth/login 登录",
+        "operationId": "UserController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "注册成功，返回脱敏后的用户信息（不包含密码）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数校验失败 (如用户名过短、邮箱格式错误)"
+          },
+          "409": {
+            "description": "用户名或邮箱已被注册"
+          }
+        },
+        "summary": "注册新用户",
+        "tags": [
+          "users"
+        ]
+      },
+      "get": {
+        "description": "仅限审核员及以上角色访问",
+        "operationId": "UserController_findAll",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "页码 (从 1 开始)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "每页数量",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "分页用户列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/UserListItemDto"
+                      }
+                    },
+                    "total": {
+                      "type": "number",
+                      "example": 150
+                    },
+                    "page": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "limit": {
+                      "type": "number",
+                      "example": 20
+                    },
+                    "totalPages": {
+                      "type": "number",
+                      "example": 8
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "权限不足：需要 MODERATOR 及以上角色"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分页获取用户列表",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/users/me": {
+      "get": {
+        "operationId": "UserController_getSelfUserInfo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "返回当前用户的完整信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取当前登录用户的详细信息",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/users/me/password": {
+      "patch": {
+        "description": "必须提供正确的旧密码",
+        "operationId": "UserController_changePassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "密码修改成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "密码修改成功"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "原密码错误 或 新密码不符合长度要求"
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改当前用户的密码",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/users/{id}/public": {
+      "get": {
+        "description": "公开接口，游客可访问，返回用户名、简介、角色和头像路径",
+        "operationId": "UserController_getPublicProfile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "公开资料",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "username": {
+                      "type": "string"
+                    },
+                    "bio": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "SUPER_ADMIN",
+                        "ADMIN",
+                        "MODERATOR",
+                        "USER",
+                        "GUEST"
+                      ]
+                    },
+                    "avatar": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "用户不存在"
+          }
+        },
+        "summary": "获取用户的公开资料",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/users/{id}": {
+      "get": {
+        "description": "只能查看自己，或由具备管理权限的角色查看下级用户",
+        "operationId": "UserController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "返回用户详细信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "无权查看其他用户的详细隐私信息"
+          },
+          "404": {
+            "description": "用户不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取单个用户详细信息",
+        "tags": [
+          "users"
+        ]
+      },
+      "patch": {
+        "description": "本人可修改用户名/邮箱/简介；管理员可修改下级用户的邮箱/简介（不能改他人用户名）",
+        "operationId": "UserController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功，返回最新用户信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "无权修改其他用户的信息"
+          },
+          "404": {
+            "description": "用户不存在"
+          },
+          "409": {
+            "description": "用户名已被占用，或邮箱已被其他用户使用"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新用户信息",
+        "tags": [
+          "users"
+        ]
+      },
+      "delete": {
+        "description": "只能删除自己，或由上级角色删除下级用户。会联动删除头像文件。",
+        "operationId": "UserController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "用户已删除"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "无权删除该用户"
+          },
+          "404": {
+            "description": "用户不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除用户 (软删除)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/users/{id}/role": {
+      "patch": {
+        "description": "超级管理员可授予 ADMIN/MODERATOR/USER/GUEST；管理员可授予 MODERATOR/USER/GUEST；审核员可授予 USER/GUEST",
+        "operationId": "UserController_updateRole",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "角色修改成功，返回最新用户信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "无权修改该用户的角色"
+          },
+          "404": {
+            "description": "用户不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改用户角色",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/images": {
+      "post": {
+        "description": "仅 USER 及以上角色可上传，上传后进入待审核状态；同一 IP 每天最多上传 500 张（ADMIN/SUPER_ADMIN 不限）",
+        "operationId": "ImageController_upload",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "上传成功，返回图片信息及缩略图链接",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "图片上传成功，等待审核"
+                    },
+                    "image": {
+                      "$ref": "#/components/schemas/ImageResponseDto"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "未找到文件或格式错误"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "429": {
+            "description": "今日上传数量已达上限 (500 张)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "上传图片 (需登录)",
+        "tags": [
+          "images"
+        ]
+      },
+      "get": {
+        "description": "公开接口，默认只返回已过审图片；审核员及以上可通过 status 筛选任意审核状态",
+        "operationId": "ImageController_findAll",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "页码 (从 1 开始)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "每页数量",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "按审核状态筛选。GET /images 默认只返回已过审图片，仅审核员及以上可按状态筛选；GET /images/my 恒为本人投稿",
+            "schema": {
+              "example": "pending",
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "图片分页列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ImageListItemDto"
+                      }
+                    },
+                    "total": {
+                      "type": "number",
+                      "example": 120
+                    },
+                    "page": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "limit": {
+                      "type": "number",
+                      "example": 20
+                    },
+                    "totalPages": {
+                      "type": "number",
+                      "example": 6
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "非审核员尝试按审核状态筛选"
+          }
+        },
+        "summary": "分页获取图片列表",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{id}/review": {
+      "post": {
+        "operationId": "ImageController_reviewImage",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewImageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "审核成功，返回更新后的图片信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "拒绝时必须提供原因，或审核状态非法"
+          },
+          "403": {
+            "description": "权限不足"
+          },
+          "404": {
+            "description": "图片不存在"
+          },
+          "409": {
+            "description": "图片已是目标状态，或审核期间被其他审核员抢先处理"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "审核图片 (审核员及以上)",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{id}/modify": {
+      "post": {
+        "description": "仅图片所有者可操作；已过审或被拒绝的图片可修改，修改后重置为待审核，每张图片终身仅可修改一次",
+        "operationId": "ImageController_modify",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "修改成功，返回更新后的图片信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "图片已修改，等待重新审核"
+                    },
+                    "image": {
+                      "$ref": "#/components/schemas/ImageResponseDto"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "未找到文件、图片状态不允许修改、或已达修改次数上限"
+          },
+          "403": {
+            "description": "无权修改该图片"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改图片 (重新投稿)",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/my": {
+      "get": {
+        "description": "返回当前用户上传的所有图片（含审核状态、拒绝原因、是否已归档 archived），可用 status 只看某一审核状态",
+        "operationId": "ImageController_findMine",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "页码 (从 1 开始)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "每页数量",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "按审核状态筛选。GET /images 默认只返回已过审图片，仅审核员及以上可按状态筛选；GET /images/my 恒为本人投稿",
+            "schema": {
+              "example": "pending",
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "我的投稿分页列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MyImageListItemDto"
+                      }
+                    },
+                    "total": {
+                      "type": "number",
+                      "example": 10
+                    },
+                    "page": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "limit": {
+                      "type": "number",
+                      "example": 20
+                    },
+                    "totalPages": {
+                      "type": "number",
+                      "example": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分页获取我的投稿",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/pending": {
+      "get": {
+        "description": "按上传时间正序（先来先审）返回待审核图片的 id 与摘要，POST /images/:id/review 的 :id 即取自这里",
+        "operationId": "ImageController_findPending",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "页码 (从 1 开始)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "每页数量",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "待审核图片分页列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PendingImageDto"
+                      }
+                    },
+                    "total": {
+                      "type": "number",
+                      "example": 3
+                    },
+                    "page": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "limit": {
+                      "type": "number",
+                      "example": 20
+                    },
+                    "totalPages": {
+                      "type": "number",
+                      "example": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "权限不足：需要 MODERATOR 及以上角色"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取待审核图片队列 (审核员及以上)",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{id}/thumbnail": {
+      "get": {
+        "description": "已过审图片游客可预览；未过审图片仅审核员及以上或上传者本人可查看",
+        "operationId": "ImageController_getThumbnail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "返回图片二进制流（PNG/WebP 原图产出 WebP 缩略图，其余格式产出 JPEG）",
+            "content": {
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权查看未通过审核的图片"
+          },
+          "404": {
+            "description": "图片不存在"
+          },
+          "500": {
+            "description": "原图文件丢失或完整性校验失败，无法生成缩略图"
+          }
+        },
+        "summary": "获取缩略图流",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{id}/sign": {
+      "get": {
+        "description": "无需登录：已过审图片对所有人开放，游客也能拿到链接；未过审图片即使拿到链接，下载时仍会被拒绝（审核员及以上与上传者本人除外）。downloadUrl 是含协议与主机名的绝对地址，有效期等于 expiresInMs",
+        "operationId": "ImageController_generateSignedUrl",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "返回下载链接及过期时间",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "downloadUrl": {
+                      "type": "string",
+                      "example": "/api/images/550e8400-e29b-41d4-a716-446655440000/download?signature=abc&expires=1767225600000"
+                    },
+                    "expiresInMs": {
+                      "type": "number",
+                      "example": 86400000
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "图片不存在"
+          }
+        },
+        "summary": "生成带签名的限时下载链接",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{id}/download": {
+      "get": {
+        "description": "已过审图片游客持签名链接即可下载；未过审图片仅审核员及以上或上传者本人可下载，其余返回 403",
+        "operationId": "ImageController_downloadOriginal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "signature",
+            "required": true,
+            "in": "query",
+            "description": "HMAC 下载签名",
+            "schema": {
+              "example": "a1b2c3d4e5f6...",
+              "type": "string"
+            }
+          },
+          {
+            "name": "expires",
+            "required": true,
+            "in": "query",
+            "description": "过期时间戳 (毫秒)",
+            "schema": {
+              "example": 1793098095237,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "返回原图二进制流，Content-Type 为原图实际的 MIME，并带 Content-Disposition: attachment",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "签名无效或已过期"
+          },
+          "403": {
+            "description": "图片已被拒绝或无权下载未过审图片"
+          },
+          "404": {
+            "description": "图片不存在"
+          },
+          "500": {
+            "description": "原图文件丢失或完整性校验失败"
+          }
+        },
+        "summary": "下载原图 (需有效签名)",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/images/{id}": {
+      "get": {
+        "description": "已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / md5 / uploaderIp / reviewedBy",
+        "operationId": "ImageController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "返回图片详细信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权查看未通过审核的图片"
+          },
+          "404": {
+            "description": "图片不存在"
+          }
+        },
+        "summary": "获取图片详情",
+        "tags": [
+          "images"
+        ]
+      },
+      "delete": {
+        "operationId": "ImageController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "图片及缓存已彻底删除"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "无权删除此图片"
+          },
+          "404": {
+            "description": "图片不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除图片 (本人或上级角色)",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/api/avatars/{userId}": {
+      "post": {
+        "description": "仅本人可提交，提交后进入待审核状态，审核通过后才会成为当前头像",
+        "operationId": "AvatarController_submit",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "头像提交成功，等待审核",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "头像已提交，等待审核"
+                    },
+                    "submission": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "pending",
+                            "approved",
+                            "rejected"
+                          ],
+                          "example": "pending"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "未找到文件或格式不支持"
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "409": {
+            "description": "已有待审核的头像"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "提交头像 (需登录)",
+        "tags": [
+          "avatars"
+        ]
+      },
+      "delete": {
+        "description": "仅本人或具备管理权限的上级角色可删除",
+        "operationId": "AvatarController_remove",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "头像删除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "头像已删除"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "无权删除该用户的头像"
+          },
+          "404": {
+            "description": "该用户暂无头像"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除用户头像",
+        "tags": [
+          "avatars"
+        ]
+      }
+    },
+    "/api/avatars/{userId}/review": {
+      "post": {
+        "description": "approved 会替换当前头像；rejected 会作废投稿并回退到上一个头像。两种结果的响应形状一致，avatar 为 null 表示没有产生当前头像",
+        "operationId": "AvatarController_review",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewAvatarDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "审核完成",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "头像已通过审核"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "approved",
+                        "rejected"
+                      ],
+                      "example": "approved"
+                    },
+                    "avatar": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "description": "通过时为新当前头像的标识；拒绝时（或头像记录不落库时）为 null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "拒绝时必须提供原因，或审核状态非法"
+          },
+          "403": {
+            "description": "权限不足"
+          },
+          "404": {
+            "description": "该用户没有待审核的头像"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "审核头像 (审核员及以上)",
+        "tags": [
+          "avatars"
+        ]
+      }
+    },
+    "/api/avatars/pending": {
+      "get": {
+        "description": "按提交时间正序返回待审核头像的 userId 与用户名，POST /avatars/:userId/review 的 :userId 即取自这里",
+        "operationId": "AvatarController_findPending",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "页码 (从 1 开始)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "每页数量",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "待审核头像分页列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "submissionId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "username": {
+                            "type": "string",
+                            "nullable": true,
+                            "example": "alice"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "approved",
+                              "rejected"
+                            ],
+                            "example": "pending"
+                          },
+                          "imageUrl": {
+                            "type": "string",
+                            "example": "/avatars/550e8400-e29b-41d4-a716-446655440000/pending/image"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "number",
+                      "example": 2
+                    },
+                    "page": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "limit": {
+                      "type": "number",
+                      "example": 20
+                    },
+                    "totalPages": {
+                      "type": "number",
+                      "example": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "权限不足：需要 MODERATOR 及以上角色"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取待审核头像队列 (审核员及以上)",
+        "tags": [
+          "avatars"
+        ]
+      }
+    },
+    "/api/avatars/{userId}/pending/image": {
+      "get": {
+        "description": "审核前预览投稿图片；该用户没有待审核头像时返回 404",
+        "operationId": "AvatarController_getPendingImage",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "返回待审核头像二进制流",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "该用户没有待审核的头像"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取待审核头像图片流 (审核员及以上)",
+        "tags": [
+          "avatars"
+        ]
+      }
+    },
+    "/api/avatars/{userId}/image": {
+      "get": {
+        "description": "公开接口，游客可访问，仅展示已过审的当前头像",
+        "operationId": "AvatarController_getImage",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "返回头像图片二进制流",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "该用户暂无头像"
+          },
+          "404": {
+            "description": "头像文件不存在"
+          }
+        },
+        "summary": "获取用户当前头像图片流",
+        "tags": [
+          "avatars"
+        ]
+      }
+    },
+    "/api/albums": {
+      "post": {
+        "description": "仅 USER 及以上角色可创建，可携带已存在的标签",
+        "operationId": "AlbumController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlbumDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "创建成功，返回图集详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "标签不存在"
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建图集",
+        "tags": [
+          "albums"
+        ]
+      },
+      "get": {
+        "description": "公开图集游客可见；私有图集只出现在本人的列表里（审核员及以上可在详情接口按 id 直接访问）",
+        "operationId": "AlbumController_findAll",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "页码 (从 1 开始)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "每页数量",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "图集分页列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AlbumSummaryDto"
+                      }
+                    },
+                    "total": {
+                      "type": "number",
+                      "example": 12
+                    },
+                    "page": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "limit": {
+                      "type": "number",
+                      "example": 20
+                    },
+                    "totalPages": {
+                      "type": "number",
+                      "example": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "分页获取图集列表",
+        "tags": [
+          "albums"
+        ]
+      }
+    },
+    "/api/albums/search": {
+      "get": {
+        "description": "标题/描述模糊匹配 与 标签全部命中；仅返回当前用户可见的图集（公开或本人创建）",
+        "operationId": "AlbumController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "关键词 (对标题和描述做模糊匹配)",
+            "schema": {
+              "example": "旅行",
+              "type": "string"
+            }
+          },
+          {
+            "name": "tags",
+            "required": false,
+            "in": "query",
+            "description": "标签名数组 (需全部命中)",
+            "schema": {
+              "example": [
+                "风景",
+                "人像"
+              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "页码 (从 1 开始)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "每页数量",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "搜索结果分页列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AlbumSummaryDto"
+                      }
+                    },
+                    "total": {
+                      "type": "number",
+                      "example": 3
+                    },
+                    "page": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "limit": {
+                      "type": "number",
+                      "example": 20
+                    },
+                    "totalPages": {
+                      "type": "number",
+                      "example": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "搜索图集",
+        "tags": [
+          "albums"
+        ]
+      }
+    },
+    "/api/albums/{id}": {
+      "get": {
+        "description": "包含完整图片与标签；私有图集仅本人或审核员及以上可访问，其余返回 404",
+        "operationId": "AlbumController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "图集详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumDetailDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "图集不存在，或私有图集对当前用户不可见"
+          }
+        },
+        "summary": "获取图集详情",
+        "tags": [
+          "albums"
+        ]
+      },
+      "patch": {
+        "description": "本人可修改（除非被管理员锁定）；上级角色可修改，设为私有会锁定图集",
+        "operationId": "AlbumController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAlbumDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功，返回图集详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "标签不存在"
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "无权修改该图集"
+          },
+          "404": {
+            "description": "图集不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改图集信息",
+        "tags": [
+          "albums"
+        ]
+      },
+      "delete": {
+        "description": "仅删除图集（不会删除图片本身），本人或上级角色可操作",
+        "operationId": "AlbumController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "图集已删除"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "无权删除该图集"
+          },
+          "404": {
+            "description": "图集不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除图集",
+        "tags": [
+          "albums"
+        ]
+      }
+    },
+    "/api/albums/{id}/unlock": {
+      "post": {
+        "description": "仅管理员及以上可解锁被锁定的图集，解锁后恢复公开，本人可重新修改",
+        "operationId": "AlbumController_unlock",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "解锁成功，返回图集详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "权限不足或无权解锁该图集"
+          },
+          "404": {
+            "description": "图集不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "解锁图集",
+        "tags": [
+          "albums"
+        ]
+      }
+    },
+    "/api/albums/{id}/images": {
+      "post": {
+        "description": "仅可归档已过审的图片；本人只能归档自己的图片",
+        "operationId": "AlbumController_addImages",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAlbumImagesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "归档成功，返回图集详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "图片不存在或未过审"
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "无权修改该图集"
+          },
+          "404": {
+            "description": "图集不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "向图集归档图片",
+        "tags": [
+          "albums"
+        ]
+      },
+      "delete": {
+        "description": "仅移除归档关系，不会删除图片本身",
+        "operationId": "AlbumController_removeImages",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAlbumImagesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "移除成功，返回图集详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "无权修改该图集"
+          },
+          "404": {
+            "description": "图集不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "从图集移除图片",
+        "tags": [
+          "albums"
+        ]
+      }
+    },
+    "/api/tags": {
+      "get": {
+        "description": "公开接口，游客可访问",
+        "operationId": "TagController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "标签列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Tag"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "获取标签列表",
+        "tags": [
+          "tags"
+        ]
+      },
+      "post": {
+        "description": "仅审核员及以上角色可创建",
+        "operationId": "TagController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTagDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tag"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "权限不足：需要 MODERATOR 及以上角色"
+          },
+          "409": {
+            "description": "标签已存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建标签",
+        "tags": [
+          "tags"
+        ]
+      }
+    },
+    "/api/tags/{id}": {
+      "delete": {
+        "description": "仅管理员及以上可删除，会同时从引用该标签的图集中移除",
+        "operationId": "TagController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "标签已删除"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "权限不足：需要 ADMIN 及以上角色"
+          },
+          "404": {
+            "description": "标签不存在"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除标签",
+        "tags": [
+          "tags"
+        ]
+      }
+    },
+    "/api/audit-logs": {
+      "get": {
+        "description": "仅管理员及以上角色可访问，支持按操作者、动作、时间范围过滤",
+        "operationId": "AuditLogController_findAll",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "页码 (从 1 开始)",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "每页数量",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "actorId",
+            "required": false,
+            "in": "query",
+            "description": "按操作者用户 ID 过滤",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "description": "按操作动作模糊过滤",
+            "schema": {
+              "example": "/users/:id/role",
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "起始时间 (ISO 8601)",
+            "schema": {
+              "example": "2026-09-01T00:00:00.000Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "结束时间 (ISO 8601)",
+            "schema": {
+              "example": "2026-09-30T23:59:59.999Z",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作日志分页列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AuditLog"
+                      }
+                    },
+                    "total": {
+                      "type": "number",
+                      "example": 320
+                    },
+                    "page": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "limit": {
+                      "type": "number",
+                      "example": 20
+                    },
+                    "totalPages": {
+                      "type": "number",
+                      "example": 16
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "权限不足：需要 ADMIN 及以上角色"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分页查询操作日志",
+        "tags": [
+          "audit-logs"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Koharu API",
+    "description": "Koharu 后端服务 API 文档\n\n全局约定：所有接口统一前缀 `/api`；路径参数 `:id` / `:userId` 必须为 UUID，格式非法时直接返回 400，不会进入业务逻辑。",
+    "version": "0.0.2",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "auth",
+      "description": "认证模块"
+    },
+    {
+      "name": "users",
+      "description": "用户模块"
+    },
+    {
+      "name": "images",
+      "description": "图库模块"
+    },
+    {
+      "name": "avatars",
+      "description": "头像模块"
+    },
+    {
+      "name": "audit-logs",
+      "description": "审计日志模块"
+    },
+    {
+      "name": "albums",
+      "description": "图集模块"
+    },
+    {
+      "name": "tags",
+      "description": "标签模块"
+    }
+  ],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "用户名",
+            "example": "admin"
+          },
+          "password": {
+            "type": "string",
+            "description": "密码。未加密时为明文，encrypted=true 时为 RSA-OAEP(SHA-256) 加密后的 base64",
+            "example": "Admin@123456"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "description": "password 是否已使用 /auth/public-key 返回的公钥加密",
+            "example": true,
+            "default": false
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "RefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "description": "刷新 Token",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "UserAvatarDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "path": {
+            "type": "string",
+            "description": "头像文件在存储中的相对路径"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "头像所属用户 ID"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "userId",
+          "createdAt"
+        ]
+      },
+      "UserListItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "ADMIN",
+              "MODERATOR",
+              "USER",
+              "GUEST"
+            ]
+          },
+          "bio": {
+            "type": "string",
+            "nullable": true
+          },
+          "emailVerified": {
+            "type": "boolean"
+          },
+          "avatar": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UserAvatarDto"
+              }
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "email",
+          "role",
+          "bio",
+          "emailVerified",
+          "avatar",
+          "createdAt"
+        ]
+      },
+      "CreateUserDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "用户名 (至少3个字符)",
+            "example": "new_user"
+          },
+          "email": {
+            "type": "string",
+            "description": "电子邮箱",
+            "example": "user@example.com"
+          },
+          "password": {
+            "type": "string",
+            "description": "密码（明文或 RSA-OAEP 加密后的 base64，至少6个字符）",
+            "example": "Password123"
+          },
+          "bio": {
+            "type": "string",
+            "description": "个人简介",
+            "example": "Hello World"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "description": "password 是否已使用 /auth/public-key 返回的公钥加密",
+            "example": true,
+            "default": false
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "password"
+        ]
+      },
+      "UserResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "用户唯一标识 (UUID)"
+          },
+          "username": {
+            "type": "string",
+            "description": "用户名",
+            "example": "koharu_user"
+          },
+          "email": {
+            "type": "string",
+            "description": "电子邮箱",
+            "example": "user@example.com"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "ADMIN",
+              "MODERATOR",
+              "USER",
+              "GUEST"
+            ],
+            "description": "用户角色",
+            "default": "USER"
+          },
+          "bio": {
+            "type": "string",
+            "description": "个人简介",
+            "maxLength": 500
+          },
+          "emailVerified": {
+            "type": "boolean",
+            "description": "邮箱是否已验证"
+          },
+          "avatar": {
+            "description": "关联的头像信息",
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UserAvatarDto"
+              }
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "创建时间"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "更新时间"
+          },
+          "deletedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "软删除时间（未删除时为 null）",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "email",
+          "role",
+          "emailVerified",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "oldPassword": {
+            "type": "string",
+            "description": "当前旧密码（明文或 RSA-OAEP 加密后的 base64）",
+            "example": "OldPassword123"
+          },
+          "newPassword": {
+            "type": "string",
+            "description": "新密码（明文或 RSA-OAEP 加密后的 base64，至少6个字符）",
+            "example": "NewPassword456"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "description": "oldPassword / newPassword 是否已使用 /auth/public-key 返回的公钥加密",
+            "example": true,
+            "default": false
+          }
+        },
+        "required": [
+          "oldPassword",
+          "newPassword"
+        ]
+      },
+      "UpdateUserDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "用户名 (至少3个字符，仅本人可修改)",
+            "example": "new_username"
+          },
+          "email": {
+            "type": "string",
+            "description": "电子邮箱",
+            "example": "new@example.com"
+          },
+          "bio": {
+            "type": "string",
+            "description": "个人简介",
+            "example": "Hello World"
+          }
+        }
+      },
+      "UpdateUserRoleDto": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "要修改的目标角色",
+            "enum": [
+              "SUPER_ADMIN",
+              "ADMIN",
+              "MODERATOR",
+              "USER",
+              "GUEST"
+            ],
+            "example": "ADMIN"
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "ImageListItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "filename": {
+            "type": "string",
+            "description": "上传时的原始文件名"
+          },
+          "thumbnailPath": {
+            "type": "string",
+            "nullable": true,
+            "description": "缩略图在存储中的相对路径"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "description": "可直接访问的缩略图地址"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "原图 MIME 类型"
+          },
+          "size": {
+            "type": "number",
+            "description": "文件字节数"
+          },
+          "width": {
+            "type": "number",
+            "nullable": true
+          },
+          "height": {
+            "type": "number",
+            "nullable": true
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "上传者 id，匿名上传为 null"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "thumbnailPath",
+          "thumbnailUrl",
+          "mimeType",
+          "size",
+          "width",
+          "height",
+          "userId",
+          "status",
+          "createdAt"
+        ]
+      },
+      "MyImageListItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "filename": {
+            "type": "string",
+            "description": "上传时的原始文件名"
+          },
+          "thumbnailPath": {
+            "type": "string",
+            "nullable": true,
+            "description": "缩略图在存储中的相对路径"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "description": "可直接访问的缩略图地址"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "原图 MIME 类型"
+          },
+          "size": {
+            "type": "number",
+            "description": "文件字节数"
+          },
+          "width": {
+            "type": "number",
+            "nullable": true
+          },
+          "height": {
+            "type": "number",
+            "nullable": true
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "上传者 id，匿名上传为 null"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "rejectReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "仅被拒绝时有值"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "是否已归档进任意图集"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "thumbnailPath",
+          "thumbnailUrl",
+          "mimeType",
+          "size",
+          "width",
+          "height",
+          "userId",
+          "status",
+          "createdAt",
+          "rejectReason",
+          "archived"
+        ]
+      },
+      "PendingImageDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "filename": {
+            "type": "string",
+            "description": "上传时的原始文件名"
+          },
+          "thumbnailPath": {
+            "type": "string",
+            "nullable": true,
+            "description": "缩略图在存储中的相对路径"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "description": "可直接访问的缩略图地址"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "原图 MIME 类型"
+          },
+          "size": {
+            "type": "number",
+            "description": "文件字节数"
+          },
+          "width": {
+            "type": "number",
+            "nullable": true
+          },
+          "height": {
+            "type": "number",
+            "nullable": true
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "上传者 id，匿名上传为 null"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "username": {
+            "type": "string",
+            "nullable": true,
+            "description": "上传者用户名，上传者已注销时为 null"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "thumbnailPath",
+          "thumbnailUrl",
+          "mimeType",
+          "size",
+          "width",
+          "height",
+          "userId",
+          "status",
+          "createdAt",
+          "username"
+        ]
+      },
+      "ReviewImageDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ],
+            "description": "审核状态 (approved / rejected)",
+            "example": "approved"
+          },
+          "reason": {
+            "type": "string",
+            "description": "拒绝原因 (当状态为 rejected 时必填)",
+            "example": "涉及社会敏感话题，引流等等..."
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "ImageResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "图片唯一标识 (UUID)"
+          },
+          "filename": {
+            "type": "string",
+            "description": "原始文件名",
+            "example": "vacation_photo.jpg"
+          },
+          "thumbnailPath": {
+            "type": "string",
+            "nullable": true,
+            "description": "缩略图相对路径",
+            "example": "/image_cache/thumb_xxx.webp"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "description": "缩略图访问地址",
+            "example": "/images/550e8400-e29b-41d4-a716-446655440000/thumbnail"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "MIME 类型",
+            "example": "image/jpeg"
+          },
+          "size": {
+            "type": "number",
+            "description": "文件大小 (字节)",
+            "example": 2048576
+          },
+          "width": {
+            "type": "number",
+            "nullable": true,
+            "description": "图片宽度 (px)",
+            "example": 1920
+          },
+          "height": {
+            "type": "number",
+            "nullable": true,
+            "description": "图片高度 (px)",
+            "example": 1080
+          },
+          "userId": {
+            "type": "string",
+            "nullable": true,
+            "description": "上传者用户 ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "审核状态",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ],
+            "example": "approved"
+          },
+          "rejectReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "拒绝原因 (仅当状态为 rejected 时存在)"
+          },
+          "editCount": {
+            "type": "number",
+            "description": "已修改次数 (每张图片终身仅可修改一次)",
+            "default": 0
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "创建时间 (上传时间)"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "更新时间 (如审核状态变更时间)"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "thumbnailUrl",
+          "mimeType",
+          "size",
+          "status",
+          "editCount",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ReviewAvatarDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ],
+            "description": "审核状态 (approved / rejected)",
+            "example": "approved"
+          },
+          "reason": {
+            "type": "string",
+            "description": "拒绝原因 (当状态为 rejected 时必填)",
+            "example": "头像包含违规内容"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "AlbumOwnerDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username"
+        ]
+      },
+      "AlbumTagDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "AlbumSummaryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "locked": {
+            "type": "boolean",
+            "description": "被管理员锁定后只有管理员能改回公开"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "创建者 id，创建者已注销为 null"
+          },
+          "owner": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AlbumOwnerDto"
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlbumTagDto"
+            }
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "imageCount": {
+            "type": "number",
+            "description": "图集内图片数量"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "visibility",
+          "locked",
+          "ownerId",
+          "owner",
+          "tags",
+          "createdAt",
+          "updatedAt",
+          "imageCount"
+        ]
+      },
+      "AlbumImageDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "thumbnailPath": {
+            "type": "string",
+            "nullable": true
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "description": "可直接访问的缩略图地址"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "thumbnailPath",
+          "thumbnailUrl",
+          "status"
+        ]
+      },
+      "AlbumDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "locked": {
+            "type": "boolean",
+            "description": "被管理员锁定后只有管理员能改回公开"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "创建者 id，创建者已注销为 null"
+          },
+          "owner": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AlbumOwnerDto"
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlbumTagDto"
+            }
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlbumImageDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "visibility",
+          "locked",
+          "ownerId",
+          "owner",
+          "tags",
+          "createdAt",
+          "updatedAt",
+          "images"
+        ]
+      },
+      "CreateAlbumDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "图集标题",
+            "example": "我的旅行"
+          },
+          "description": {
+            "type": "string",
+            "description": "图集描述",
+            "example": "2026 年旅行的照片合集"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "可见性",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public"
+          },
+          "tags": {
+            "description": "标签名数组 (仅可携带已存在的标签)",
+            "example": [
+              "风景",
+              "人像"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "UpdateAlbumDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "图集标题",
+            "example": "我的旅行"
+          },
+          "description": {
+            "type": "string",
+            "description": "图集描述",
+            "example": "2026 年旅行的照片合集"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "可见性",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "tags": {
+            "description": "标签名数组 (替换图集的全部标签)",
+            "example": [
+              "风景",
+              "人像"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UpdateAlbumImagesDto": {
+        "type": "object",
+        "properties": {
+          "imageIds": {
+            "description": "图片 ID 数组 (仅可归档已过审的图片)",
+            "example": [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "imageIds"
+        ]
+      },
+      "Tag": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "标签唯一标识 (UUID)"
+          },
+          "name": {
+            "type": "string",
+            "description": "标签名 (唯一)",
+            "example": "风景"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "创建时间"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt"
+        ]
+      },
+      "CreateTagDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "标签名 (唯一)",
+            "example": "风景"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "AuditLog": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "日志唯一标识 (UUID)"
+          },
+          "actorId": {
+            "type": "string",
+            "nullable": true,
+            "description": "操作者用户 ID (未登录为 null)"
+          },
+          "actorUsername": {
+            "type": "string",
+            "nullable": true,
+            "description": "操作者用户名快照"
+          },
+          "actorRole": {
+            "type": "string",
+            "nullable": true,
+            "description": "操作者角色快照"
+          },
+          "action": {
+            "type": "string",
+            "description": "操作动作，如 \"POST /auth/login\"",
+            "example": "PATCH /users/:id/role"
+          },
+          "method": {
+            "type": "string",
+            "nullable": true,
+            "description": "HTTP 方法",
+            "example": "PATCH"
+          },
+          "path": {
+            "type": "string",
+            "nullable": true,
+            "description": "请求路径 (不含查询参数)"
+          },
+          "statusCode": {
+            "type": "number",
+            "nullable": true,
+            "description": "HTTP 状态码"
+          },
+          "ip": {
+            "type": "string",
+            "nullable": true,
+            "description": "请求来源 IP"
+          },
+          "userAgent": {
+            "type": "string",
+            "nullable": true,
+            "description": "客户端 User-Agent"
+          },
+          "durationMs": {
+            "type": "number",
+            "nullable": true,
+            "description": "请求耗时 (毫秒)"
+          },
+          "detail": {
+            "type": "object",
+            "nullable": true,
+            "description": "附加上下文 (如登录用户名)"
+          },
+          "success": {
+            "type": "boolean",
+            "description": "是否成功 (状态码 < 400)"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "发生时间"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "success",
+          "createdAt"
+        ]
+      }
+    }
+  }
+}

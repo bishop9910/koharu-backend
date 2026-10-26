@@ -6,8 +6,7 @@ import {
   Body, 
   HttpCode, 
   HttpStatus, 
-  UnauthorizedException,
-  BadRequestException
+  Req
 } from '@nestjs/common';
 import { 
   ApiTags, 
@@ -57,7 +56,7 @@ export class AuthController {
   @Post('login')
   @ApiOperation({ 
     summary: '用户登录', 
-    description: '使用用户名和密码进行认证，成功后返回 Access Token 和 Refresh Token' 
+    description: '使用用户名和密码进行认证，成功后返回 Access Token 和 Refresh Token。失败次数过多会暂时拒绝（同一用户名 15 分钟 5 次 / 同一 IP 20 次，可通过 `auth.login_throttle` 配置）' 
   })
   @ApiOkResponse({
     description: '登录成功',
@@ -79,12 +78,21 @@ export class AuthController {
     }
   })
   @ApiBadRequestResponse({ description: '用户名或密码错误' })
-  async login(@Body() loginDto: LoginDto) {
-    const user = await this.authService.validateUser(loginDto);
-    if (!user) {
-      throw new BadRequestException('用户名或密码错误');
-    }
-    return this.authService.login(user);
+  @ApiResponse({
+    status: 429,
+    description: '登录失败次数过多，请稍后重试',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 429 },
+        message: { type: 'string', example: '登录失败次数过多，请 892 秒后再试' },
+        error: { type: 'string', example: 'Too Many Requests' },
+        retryAfterMs: { type: 'number', description: '距离可以再次尝试的毫秒数', example: 891540 },
+      },
+    },
+  })
+  async login(@Body() loginDto: LoginDto, @Req() req: any) {
+    return this.authService.loginWithThrottle(loginDto, req.ip);
   }
 
   /**

@@ -67,6 +67,11 @@ export class AvatarService {
       throw new NotFoundException('该用户没有待审核的头像');
     }
 
+    // 审核是「他人复核」，不允许审核员给自己提交的头像下结论
+    if (pending.userId === reviewerId) {
+      throw new ForbiddenException('不能审核自己提交的头像');
+    }
+
     if (status === AvatarStatus.REJECTED) {
       if (!reason) {
         throw new BadRequestException('拒绝头像时必须提供原因');

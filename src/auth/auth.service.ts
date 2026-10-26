@@ -11,6 +11,7 @@ import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { JwtPayload } from './interfaces/jwt-payload.interface.js';
 import { RsaService } from '../common/security/rsa.service.js';
+import { LoginThrottleService } from './login-throttle.service.js';
 
 @Injectable()
 export class AuthService {
@@ -21,6 +22,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private rsaService: RsaService,
+    private loginThrottle: LoginThrottleService,
   ) {}
 
   /**
@@ -43,6 +45,23 @@ export class AuthService {
       return result;
     }
     return null;
+  }
+
+  /**
+   * 登录入口：先过失败频控，再校验密码，成功后清空该用户名的失败计数。
+   */
+  async loginWithThrottle(loginDto: LoginDto, ip: string) {
+    this.loginThrottle.assertAllowed(loginDto.username, ip);
+
+    const user = await this.validateUser(loginDto);
+    if (!user) {
+      this.loginThrottle.recordFailure(loginDto.username, ip);
+      this.logger.warn(`用户 ${loginDto.username} 登录失败 (IP: ${ip})`);
+      throw new BadRequestException('用户名或密码错误');
+    }
+
+    this.loginThrottle.reset(loginDto.username);
+    return this.login(user);
   }
 
   /**

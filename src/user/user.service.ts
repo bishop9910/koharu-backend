@@ -175,7 +175,27 @@ export class UserService {
       if (target.role === Role.SUPER_ADMIN) {
         throw new ForbiddenException('超级管理员用户名不可修改');
       }
+      if (updateUserDto.username !== target.username) {
+        const taken = await this.userRepository.findOne({
+          where: { username: updateUserDto.username },
+          select: { id: true },
+          withDeleted: true,
+        });
+        if (taken && taken.id !== target.id) {
+          throw new ConflictException('用户名已被占用');
+        }
+      }
       target.username = updateUserDto.username;
+    }
+    if (updateUserDto.email !== undefined && updateUserDto.email !== target.email) {
+      const taken = await this.userRepository.findOne({
+        where: { email: updateUserDto.email },
+        select: { id: true },
+        withDeleted: true,
+      });
+      if (taken && taken.id !== target.id) {
+        throw new ConflictException('邮箱已被其他用户使用');
+      }
     }
     if (updateUserDto.email !== undefined) {
       target.email = updateUserDto.email;

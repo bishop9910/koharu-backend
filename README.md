@@ -34,6 +34,7 @@
 - [配置说明](#配置说明-configuration)
 - [默认管理员](#默认管理员-default-admin)
 - [模块与接口概览](#模块与接口概览-api)
+- [完整文档](#完整文档-docs)
 - [安全与最佳实践](#安全与最佳实践-security--best-practices)
 - [License](#license)
 
@@ -85,6 +86,7 @@ SUPER_ADMIN > ADMIN > MODERATOR > USER > GUEST
 | 超管用户名不可改 | seed 依赖字面量 `admin` 识别主管理员 |
 | 密码/用户名仅本人 | 任何人不能修改他人密码与用户名 |
 | 角色授予分级 | SUPER_ADMIN 可授 ADMIN/MODERATOR/USER/GUEST；ADMIN 可授 MODERATOR/USER/GUEST；MODERATOR 只能授 USER/GUEST |
+| 不可自审 | 审核员不能审核自己上传的图片或自己提交的头像，返回 403 |
 
 ---
 
@@ -210,6 +212,13 @@ logger:
 cleanup:
   retention_ms: 1209600000           # 软删除保留时长（毫秒，2 周）
   interval_ms: 86400000              # 清理执行周期（毫秒，1 天）
+
+auth:
+  login_throttle:
+    max_failures: 5                  # 同一用户名在窗口内的失败次数上限
+    ip_max_failures: 20              # 同一 IP 在窗口内的失败次数上限（防换用户名撞库）
+    window_ms: 900000                # 失败计数窗口（毫秒，15 分钟）
+    block_ms: 900000                 # 触发后的封禁时长（毫秒，15 分钟）
 ```
 
 > **向后兼容**：配置系统会把 `config.yaml` 与默认配置做深度合并，yaml 中缺失的字段自动回退默认值，已存在的字段（含你手动改过的）不会被覆盖。新增配置项时只需更新 `default.ts`，老 config 无需重建。
@@ -239,7 +248,7 @@ cleanup:
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | GET | `/auth/public-key` | 获取登录/改密用的 RSA 公钥（`PEM`） | 公开 |
-| POST | `/auth/login` | 登录，返回 Access/Refresh Token | 公开 |
+| POST | `/auth/login` | 登录，返回 Access/Refresh Token；失败次数超额返回 `429`（含 `retryAfterMs`） | 公开 |
 | POST | `/auth/refresh` | 刷新 Access Token | 公开 |
 
 > 登录响应为 `{ accessToken, refreshToken, expiresIn, user: { id, username, role } }`，`expiresIn` 单位为**毫秒**；`role` 取值是大写的 `SUPER_ADMIN` / `ADMIN` / `MODERATOR` / `USER` / `GUEST`。
@@ -254,7 +263,7 @@ cleanup:
 | PATCH | `/users/me/password` | 修改自己密码 | 登录 |
 | GET | `/users/:id/public` | 公开资料 | 公开 |
 | GET | `/users/:id` | 用户详情 | 本人/上级 |
-| PATCH | `/users/:id` | 更新用户信息 | 本人/上级 |
+| PATCH | `/users/:id` | 更新用户信息（用户名/邮箱重复返回 `409`） | 本人/上级 |
 | DELETE | `/users/:id` | 删除用户（联动删图片/头像/图集） | 本人/上级 |
 | PATCH | `/users/:id/role` | 修改角色 | MODERATOR+（分级受限） |
 
@@ -269,12 +278,14 @@ cleanup:
 | GET | `/images/pending` | **待审核队列**（按上传时间正序，含 `id` 与上传者用户名） | MODERATOR+ |
 | GET | `/images/my` | 我的投稿（含 `archived` 归档标记，可用 `?status=` 过滤） | 登录 |
 | GET | `/images/:id/thumbnail` | 缩略图流 | 已过审公开 / 未过审 本人或 MODERATOR+ |
-| GET | `/images/:id/sign` | 生成签名下载链接（返回含 `/api` 前缀的绝对地址，有效期同 `expiresInMs`） | USER+ |
-| GET | `/images/:id/download` | 下载原图 | USER+ |
+| GET | `/images/:id/sign` | 生成签名下载链接（返回含 `/api` 前缀的绝对地址，有效期同 `expiresInMs`） | 公开（未过审图片的链接在下载时被拒） |
+| GET | `/images/:id/download` | 下载原图（需有效签名） | 已过审公开 / 未过审 本人或 MODERATOR+ |
 | GET | `/images/:id` | 图片详情（已脱敏，不含 `path`/`md5`/`uploaderIp`/`reviewedBy`） | 已过审公开 / 未过审 本人或 MODERATOR+ |
 | DELETE | `/images/:id` | 删除图片 | 本人/上级 |
 
 > 审核闭环：审核界面先调 `GET /images/pending` 取到待审核图片的 `id`，再调 `POST /images/:id/review`；`GET /images?status=pending` 是同一份数据的通用筛选入口（不排序、不带上传者）。上传者本人可以查看自己待审核/被拒的图片详情与缩略图，否则改稿时无从对照。
+>
+> 游客可见范围：已过审图片的详情、缩略图、签名链接与原始文件均无需登录；未过审（含图集里因改稿退回待审核的图片）只对审核员及以上与上传者本人可见。所有响应里的 `thumbnailUrl` 都带 `/api` 前缀，可直接作为 `<img src>` 使用。
 
 ### albums（图集归档）
 
@@ -336,6 +347,24 @@ cleanup:
 
 ---
 
+## 完整文档 (Docs)
+
+面向前后端对接与二次开发的详细文档在 [`docs/`](./docs/README.md)：
+
+| 文件 | 内容 |
+|---|---|
+| [docs/README.md](./docs/README.md) | 索引、五分钟启动、目录结构、全局约定、审核闭环 |
+| [docs/01-architecture.md](./docs/01-architecture.md) | 分层、模块装配、请求生命周期、鉴权链、审核状态机、文件存储、审计、后台任务 |
+| [docs/02-auth-and-permissions.md](./docs/02-auth-and-permissions.md) | 角色层级、权限矩阵、登录流程、频控、游客可见性、审核规则 |
+| [docs/03-api.md](./docs/03-api.md) | 43 个操作的端点表、请求/响应 DTO 字段、curl 示例 |
+| [docs/04-data-model.md](./docs/04-data-model.md) | 表结构、枚举、索引、级联与迁移注意 |
+| [docs/05-config-and-deploy.md](./docs/05-config-and-deploy.md) | 配置全键、构建启动、日志、反向代理、上线检查清单 |
+| [docs/06-errors.md](./docs/06-errors.md) | 错误体、状态码语义、逐端点错误文案、重试建议 |
+| [docs/07-changes.md](./docs/07-changes.md) | 近期改动与已知限制 |
+| [docs/openapi.json](./docs/openapi.json) / [docs/openapi.yaml](./docs/openapi.yaml) | 从运行中的服务导出的 OpenAPI 3.0 规格（43 操作 / 26 schema） |
+
+---
+
 ## 安全与最佳实践 (Security & Best Practices)
 
 1. **文件上传防护**：`FileService` 统一做大小限制、MIME 白名单与 Magic Bytes 校验，防止恶意文件上传。
@@ -350,6 +379,8 @@ cleanup:
 7. **边界校验（路径参数）**：所有 `:id` / `:userId` 由 Controller 层的 `ParseUUIDPipe` 校验，格式非法（如 `GET /api/images/1`）直接返回 `400`，不会进入 Service 与数据库——避免非法值触发 PostgreSQL 的 `22P02 invalid input syntax for type uuid` 并被包装成 `500`。客户端请始终使用列表/详情接口返回的 `id`（UUID），不要用数组下标或自增序号。
 8. **审核状态机**：图片审核只能作用于当前 `pending` 的图片，重复审核返回 `409`；审核写入以读到的旧状态为条件（`UPDATE ... WHERE id = ? AND status = <旧状态>`），两名审核员同时审同一张图时后提交者收到 `409` 而不是覆盖前者的结论。头像审核同样只接受 `pending` 投稿。
 9. **未过审内容可见范围**：未过审（`pending` / `rejected`）的图片详情、缩略图仅上传者本人与 `MODERATOR+` 可见；公开详情统一返回脱敏投影（`ImageResponseDto`），不含 `path`、`md5`、`uploaderIp`、`reviewedBy`。
+10. **登录失败频控**：`POST /auth/login` 按用户名（默认 15 分钟 5 次）与 IP（默认 15 分钟 20 次）双桶计数，超额返回 `429` 并带 `retryAfterMs`，封禁期内不再查库、不再做 bcrypt 比对（也避免借响应差异探测用户名是否存在）。计数在进程内存中，多实例部署时各自计数，需要全局一致请接入 Redis；阈值见 `auth.login_throttle`。
+11. **唯一性冲突**：`POST /users` 与 `PATCH /users/:id` 在写入前检查用户名/邮箱是否被占用（含软删除用户，避免撞唯一索引），冲突返回 `409` 而不是 PostgreSQL 约束错误包装成的 `500`。
 
 ---
 

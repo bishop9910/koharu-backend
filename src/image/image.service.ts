@@ -169,6 +169,11 @@ export class ImageService {
       throw new ConflictException(`该图片已经是 ${status} 状态，无需重复审核`);
     }
 
+    // 审核是「他人复核」，不允许审核员给自己上传的图片下结论
+    if (image.userId === reviewerId) {
+      throw new ForbiddenException('不能审核自己上传的图片');
+    }
+
     // 以「读到的旧状态」为并发条件：两名审核员同时审核同一张图片时，
     // 后提交的一方会更新 0 行并收到 409，而不是覆盖前一个人的结论。
     const result = await this.imageRepository.update(
@@ -262,7 +267,7 @@ export class ImageService {
         id: image.id,
         filename: image.filename,
         thumbnailPath: image.thumbnailPath,
-        thumbnailUrl: `/images/${image.id}/thumbnail`,
+        thumbnailUrl: `/${API_PREFIX}/images/${image.id}/thumbnail`,
         mimeType: image.mimeType,
         size: image.size,
         width: image.width,
@@ -311,7 +316,7 @@ export class ImageService {
       const { albums, ...rest } = img;
       return {
         ...rest,
-        thumbnailUrl: `/images/${img.id}/thumbnail`,
+        thumbnailUrl: `/${API_PREFIX}/images/${img.id}/thumbnail`,
         archived: (albums?.length ?? 0) > 0,
       };
     });
@@ -422,7 +427,10 @@ export class ImageService {
     };
   }
 
-  generateSignedUrl(imageId: string, baseUrl: string): string {
+  async generateSignedUrl(imageId: string, baseUrl: string): Promise<string> {
+    const exists = await this.imageRepository.findOne({ where: { id: imageId }, select: { id: true } });
+    if (!exists) throw new NotFoundException(`图片 ID ${imageId} 不存在`);
+
     const now = Date.now();
     const expires = now + this.cacheTimeMs;
     const signature = this.createSignature(imageId, expires);
@@ -456,12 +464,10 @@ export class ImageService {
     const image = await this.imageRepository.findOne({ where: { id: imageId } });
     if (!image) throw new NotFoundException('图片不存在');
 
-    if (image.status === ImageStatus.REJECTED) {
-      throw new ForbiddenException('该图片已被拒绝，无法下载');
-    }
-
-    if (image.status !== ImageStatus.APPROVED && !isStaff(currentUser?.role)) {
-      throw new ForbiddenException('无权下载未通过审核的图片');
+    if (!this.canPreview(image, currentUser)) {
+      throw new ForbiddenException(
+        image.status === ImageStatus.REJECTED ? '该图片已被拒绝，无法下载' : '无权下载未通过审核的图片',
+      );
     }
 
     const originalBuffer = await this.fileService.readFile(image.path);
@@ -549,7 +555,7 @@ export class ImageService {
   private toListImage(image: any): ImageListItemDto {
     return {
       ...image,
-      thumbnailUrl: `/images/${image.id}/thumbnail`,
+      thumbnailUrl: `/${API_PREFIX}/images/${image.id}/thumbnail`,
     };
   }
 
@@ -558,7 +564,7 @@ export class ImageService {
       id: image.id,
       filename: image.filename,
       thumbnailPath: image.thumbnailPath,
-      thumbnailUrl: `/images/${image.id}/thumbnail`,
+      thumbnailUrl: `/${API_PREFIX}/images/${image.id}/thumbnail`,
       mimeType: image.mimeType,
       size: image.size,
       width: image.width,

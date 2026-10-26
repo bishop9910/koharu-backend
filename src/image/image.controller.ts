@@ -203,15 +203,14 @@ export class ImageController {
   @ApiResponse({ status: 500, description: '原图文件丢失或完整性校验失败，无法生成缩略图' })
   async getThumbnail(@Param('id', ParseUUIDPipe) id: string, @Req() req: any, @Res() res: Response) {
     const { buffer, mimeType } = await this.imageService.getThumbnail(id, req.user);
-    // private：未过审图片只对审核员/本人开放，不能被共享缓存留存
-    res.set({ 'Content-Type': mimeType, 'Cache-Control': 'private, max-age=86400' });
+    // private：未过审图片只对审核员/本人开放，不能被共享缓存留存；Vary 保证同一 URL 的游客与登录态不串缓存
+    res.set({ 'Content-Type': mimeType, 'Cache-Control': 'private, max-age=86400', Vary: 'Authorization' });
     res.send(buffer);
   }
 
   @Get(':id/sign')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '生成带签名的限时下载链接', description: '仅 USER 及以上角色可生成下载链接；downloadUrl 是含协议与主机名的绝对地址，有效期等于 expiresInMs' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: '生成带签名的限时下载链接', description: '无需登录：已过审图片对所有人开放，游客也能拿到链接；未过审图片即使拿到链接，下载时仍会被拒绝（审核员及以上与上传者本人除外）。downloadUrl 是含协议与主机名的绝对地址，有效期等于 expiresInMs' })
   @ApiOkResponse({
     description: '返回下载链接及过期时间',
     schema: {
@@ -222,10 +221,10 @@ export class ImageController {
       },
     },
   })
-  @ApiResponse({ status: 401, description: '未授权' })
+  @ApiResponse({ status: 404, description: '图片不存在' })
   async generateSignedUrl(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const signedUrl = this.imageService.generateSignedUrl(id, baseUrl);
+    const signedUrl = await this.imageService.generateSignedUrl(id, baseUrl);
     return {
       downloadUrl: signedUrl,
       expiresInMs: this.configService.get<number>('server.image_lib.cache_time', 24 * 60 * 60 * 1000),
@@ -233,9 +232,8 @@ export class ImageController {
   }
 
   @Get(':id/download')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '下载原图 (需登录 + 有效签名)', description: '仅 USER 及以上角色可下载；未过审图片仅审核员及以上可下载' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: '下载原图 (需有效签名)', description: '已过审图片游客持签名链接即可下载；未过审图片仅审核员及以上或上传者本人可下载，其余返回 403' })
   @ApiResponse({ status: 200, description: '返回原图二进制流，Content-Type 为原图实际的 MIME，并带 Content-Disposition: attachment', content: { 'image/jpeg': { schema: { type: 'string', format: 'binary' } }, 'image/png': { schema: { type: 'string', format: 'binary' } }, 'image/webp': { schema: { type: 'string', format: 'binary' } }, 'image/gif': { schema: { type: 'string', format: 'binary' } } } })
   @ApiResponse({ status: 400, description: '签名无效或已过期' })
   @ApiResponse({ status: 403, description: '图片已被拒绝或无权下载未过审图片' })

@@ -17,6 +17,7 @@ import { AlbumVisibility } from '../enums/album-visibility.enum.js';
 import { ImageStatus } from '../enums/image-status.enum.js';
 import { Role } from '../enums/role.enum.js';
 import { canManageTarget, isStaff, isAtLeast } from '../common/utils/role.util.js';
+import { API_PREFIX } from '../common/constants.js';
 import { CreateAlbumDto } from './dto/create-album.dto.js';
 import { UpdateAlbumDto } from './dto/update-album.dto.js';
 import { ListAlbumsQueryDto } from './dto/list-albums-query.dto.js';
@@ -51,7 +52,7 @@ export class AlbumService {
 
     const saved = await this.albumRepository.save(album);
     this.logger.log(`用户 ${currentUser.id} 创建图集: ${saved.id}`);
-    return this.toDetailDto(await this.loadDetail(saved.id));
+    return this.toDetailDto(await this.loadDetail(saved.id), currentUser);
   }
 
   async findAll(query: ListAlbumsQueryDto, currentUser: any) {
@@ -146,7 +147,7 @@ export class AlbumService {
       && !isStaff(currentUser?.role)) {
       throw new NotFoundException('图集不存在');
     }
-    return this.toDetailDto(album);
+    return this.toDetailDto(album, currentUser);
   }
 
   async update(id: string, dto: UpdateAlbumDto, currentUser: any) {
@@ -174,7 +175,7 @@ export class AlbumService {
     }
 
     const saved = await this.albumRepository.save(album);
-    return this.toDetailDto(await this.loadDetail(saved.id));
+    return this.toDetailDto(await this.loadDetail(saved.id), currentUser);
   }
 
   async unlock(id: string, currentUser: any) {
@@ -201,7 +202,7 @@ export class AlbumService {
     album.visibility = AlbumVisibility.PUBLIC;
     const saved = await this.albumRepository.save(album);
     this.logger.log(`管理员 ${currentUser.id} 解锁图集 ${id}`);
-    return this.toDetailDto(await this.loadDetail(saved.id));
+    return this.toDetailDto(await this.loadDetail(saved.id), currentUser);
   }
 
   async remove(id: string, currentUser: any): Promise<void> {
@@ -245,7 +246,7 @@ export class AlbumService {
     album.images = [...album.images, ...newImages];
 
     const saved = await this.albumRepository.save(album);
-    return this.toDetailDto(await this.loadDetail(saved.id));
+    return this.toDetailDto(await this.loadDetail(saved.id), currentUser);
   }
 
   async removeImages(id: string, imageIds: string[], currentUser: any) {
@@ -260,7 +261,7 @@ export class AlbumService {
     album.images = album.images.filter((i) => !imageIds.includes(i.id));
 
     const saved = await this.albumRepository.save(album);
-    return this.toDetailDto(await this.loadDetail(saved.id));
+    return this.toDetailDto(await this.loadDetail(saved.id), currentUser);
   }
 
   async createTag(name: string): Promise<Tag> {
@@ -374,7 +375,10 @@ export class AlbumService {
     };
   }
 
-  private toDetailDto(album: Album) {
+  private toDetailDto(album: Album, currentUser?: any) {
+    // 图集里的图片会因改稿重新回到待审核，游客与无关用户不应从图集里看到未过审的图片
+    const canSeeAllImages =
+      isStaff(currentUser?.role) || (!!currentUser?.id && currentUser.id === album.ownerId);
     return {
       id: album.id,
       title: album.title,
@@ -384,13 +388,15 @@ export class AlbumService {
       ownerId: album.ownerId,
       owner: album.owner ? { id: album.owner.id, username: album.owner.username } : null,
       tags: (album.tags ?? []).map((t) => ({ id: t.id, name: t.name })),
-      images: (album.images ?? []).map((i) => ({
-        id: i.id,
-        filename: i.filename,
-        thumbnailPath: i.thumbnailPath,
-        thumbnailUrl: `/images/${i.id}/thumbnail`,
-        status: i.status,
-      })),
+      images: (album.images ?? [])
+        .filter((i) => canSeeAllImages || i.status === ImageStatus.APPROVED)
+        .map((i) => ({
+          id: i.id,
+          filename: i.filename,
+          thumbnailPath: i.thumbnailPath,
+          thumbnailUrl: `/${API_PREFIX}/images/${i.id}/thumbnail`,
+          status: i.status,
+        })),
       createdAt: album.createdAt,
       updatedAt: album.updatedAt,
     };

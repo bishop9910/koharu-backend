@@ -21,6 +21,7 @@ import {
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiConflictResponse,
   ApiExtraModels,
 } from '@nestjs/swagger';
 import { UserService } from './user.service.js';
@@ -141,6 +142,7 @@ export class UserController {
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权修改其他用户的信息' })
   @ApiNotFoundResponse({ description: '用户不存在' })
+  @ApiConflictResponse({ description: '用户名已被占用，或邮箱已被其他用户使用' })
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateUserDto: UpdateUserDto,

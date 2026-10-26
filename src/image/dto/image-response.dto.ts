@@ -15,7 +15,7 @@ export class ImageResponseDto {
   @ApiProperty({ description: '原始文件名', example: 'vacation_photo.jpg' })
   filename: string;
 
-  @ApiPropertyOptional({ description: '缩略图相对路径', example: '/image_cache/thumb_xxx.webp' })
+  @ApiPropertyOptional({ type: String, nullable: true, description: '缩略图相对路径', example: '/image_cache/thumb_xxx.webp' })
   thumbnailPath: string | null;
 
   @ApiProperty({ description: '缩略图访问地址', example: '/images/550e8400-e29b-41d4-a716-446655440000/thumbnail' })
@@ -27,19 +27,19 @@ export class ImageResponseDto {
   @ApiProperty({ description: '文件大小 (字节)', example: 2048576 })
   size: number;
 
-  @ApiPropertyOptional({ description: '图片宽度 (px)', example: 1920 })
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '图片宽度 (px)', example: 1920 })
   width: number | null;
 
-  @ApiPropertyOptional({ description: '图片高度 (px)', example: 1080 })
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '图片高度 (px)', example: 1080 })
   height: number | null;
 
-  @ApiPropertyOptional({ description: '上传者用户 ID' })
+  @ApiPropertyOptional({ type: String, nullable: true, description: '上传者用户 ID' })
   userId: string | null;
 
   @ApiProperty({ description: '审核状态', enum: ImageStatus, example: ImageStatus.APPROVED })
   status: ImageStatus;
 
-  @ApiPropertyOptional({ description: '拒绝原因 (仅当状态为 rejected 时存在)', nullable: true })
+  @ApiPropertyOptional({ type: String, nullable: true, description: '拒绝原因 (仅当状态为 rejected 时存在)' })
   rejectReason: string | null;
 
   @ApiProperty({ description: '已修改次数 (每张图片终身仅可修改一次)', default: 0 })

@@ -43,7 +43,15 @@ export const default_config = {
   cleanup: {
     retention_ms: 14 * 24 * 60 * 60 * 1000, // 毫秒, 软删除保留 2 周
     interval_ms: 24 * 60 * 60 * 1000,       // 毫秒, 每天执行一次
-  }
+  },
+  auth: {
+    login_throttle: {
+      max_failures: 5,                      // 同一用户名在 window_ms 内允许的失败次数
+      ip_max_failures: 20,                  // 同一 IP 在 window_ms 内允许的失败次数（防换用户名撞库）
+      window_ms: 15 * 60 * 1000,            // 失败计数窗口, 15 分钟
+      block_ms: 15 * 60 * 1000,             // 触发后封禁时长, 15 分钟
+    },
+  },
 }
 
 export type Config = typeof default_config;
