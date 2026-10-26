@@ -5,6 +5,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
   InternalServerErrorException,
   HttpException,
   HttpStatus,
@@ -18,9 +19,13 @@ import sharp from 'sharp';
 import { Image } from '../entities/image.entity.js';
 import { FileService } from '../common/file/file.service.js';
 import { calculateMD5 } from '../common/utils/hash.util.js';
+import { mimeFromPath } from '../common/utils/mime.util.js';
 import { ImageStatus } from '../enums/image-status.enum.js';
 import { Role } from '../enums/role.enum.js';
 import { isStaff, canManageTarget } from '../common/utils/role.util.js';
+import { ImageResponseDto } from './dto/image-response.dto.js';
+import { ImageListItemDto } from './dto/image-list-item.dto.js';
+import { API_PREFIX } from '../common/constants.js';
 
 @Injectable()
 export class ImageService {
@@ -69,7 +74,7 @@ export class ImageService {
     return `/${relative}`;
   }
 
-  async upload(file: Express.Multer.File, currentUser?: any, ip?: string): Promise<Image> {
+  async upload(file: Express.Multer.File, currentUser?: any, ip?: string): Promise<ImageResponseDto> {
     const isExempt = currentUser?.role === Role.ADMIN || currentUser?.role === Role.SUPER_ADMIN;
 
     if (!isExempt) {
@@ -103,10 +108,10 @@ export class ImageService {
     });
 
     this.logger.log(`用户 ${currentUser?.id} 上传图片，等待审核: ${image.id}, MD5: ${processed.md5}`);
-    return await this.imageRepository.save(image);
+    return this.toDetailDto(await this.imageRepository.save(image));
   }
 
-  async modify(imageId: string, file: Express.Multer.File, currentUser: any): Promise<Image> {
+  async modify(imageId: string, file: Express.Multer.File, currentUser: any): Promise<ImageResponseDto> {
     const image = await this.imageRepository.findOne({ where: { id: imageId } });
     if (!image) throw new NotFoundException('图片不存在');
 
@@ -145,10 +150,10 @@ export class ImageService {
     image.editCount = image.editCount + 1;
 
     this.logger.log(`用户 ${currentUser.id} 修改图片 ${imageId}，等待重新审核`);
-    return await this.imageRepository.save(image);
+    return this.toDetailDto(await this.imageRepository.save(image));
   }
 
-  async reviewImage(imageId: string, status: ImageStatus, reviewerId: string, reason?: string): Promise<Image> {
+  async reviewImage(imageId: string, status: ImageStatus, reviewerId: string, reason?: string): Promise<ImageResponseDto> {
     const image = await this.imageRepository.findOne({ where: { id: imageId } });
     if (!image) throw new NotFoundException('图片不存在');
 
@@ -160,19 +165,77 @@ export class ImageService {
       throw new BadRequestException('拒绝图片时必须提供原因');
     }
 
-    image.status = status;
-    image.reviewedBy = reviewerId;
-    image.rejectReason = status === ImageStatus.REJECTED ? (reason ?? null) : null;
+    if (image.status === status) {
+      throw new ConflictException(`该图片已经是 ${status} 状态，无需重复审核`);
+    }
+
+    // 以「读到的旧状态」为并发条件：两名审核员同时审核同一张图片时，
+    // 后提交的一方会更新 0 行并收到 409，而不是覆盖前一个人的结论。
+    const result = await this.imageRepository.update(
+      { id: imageId, status: image.status },
+      {
+        status,
+        reviewedBy: reviewerId,
+        rejectReason: status === ImageStatus.REJECTED ? (reason ?? null) : null,
+      },
+    );
+
+    if (!result.affected) {
+      throw new ConflictException('图片审核状态已被其他审核员变更，请刷新后重试');
+    }
 
     this.logger.log(`审核员 ${reviewerId} 将图片 ${imageId} 状态更新为: ${status}`);
-    return await this.imageRepository.save(image);
+    const updated = await this.imageRepository.findOne({ where: { id: imageId } });
+    if (!updated) throw new NotFoundException('图片不存在');
+    return this.toDetailDto(updated);
   }
 
-  async findAll(page: number, limit: number) {
+  async findAll(page: number, limit: number, status?: ImageStatus, currentUser?: any) {
+    const skip = (page - 1) * limit;
+
+    if (status && !isStaff(currentUser?.role)) {
+      throw new ForbiddenException('仅审核员及以上角色可按审核状态筛选图片');
+    }
+
+    const [images, total] = await this.imageRepository.findAndCount({
+      where: { status: status ?? ImageStatus.APPROVED },
+      select: {
+        id: true,
+        filename: true,
+        thumbnailPath: true,
+        mimeType: true,
+        size: true,
+        width: true,
+        height: true,
+        userId: true,
+        status: true,
+        createdAt: true,
+      },
+      skip,
+      take: limit,
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+
+    return {
+      data: images.map((image) => this.toListImage(image)),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * 待审核队列：审核界面靠它拿到 id 再去调 POST /images/:id/review。
+   * 按上传时间正序（先来先审），并带上上传者用户名，省去审核员再查一次用户。
+   */
+  async findPending(page: number, limit: number) {
     const skip = (page - 1) * limit;
 
     const [images, total] = await this.imageRepository.findAndCount({
-      where: { status: ImageStatus.APPROVED },
+      where: { status: ImageStatus.PENDING },
       select: {
         id: true,
         filename: true,
@@ -184,15 +247,31 @@ export class ImageService {
         userId: true,
         createdAt: true,
       },
+      relations: {
+        user: true,
+      },
       skip,
       take: limit,
       order: {
-        createdAt: 'DESC',
+        createdAt: 'ASC',
       },
     });
 
     return {
-      data: images,
+      data: images.map((image: any) => ({
+        id: image.id,
+        filename: image.filename,
+        thumbnailPath: image.thumbnailPath,
+        thumbnailUrl: `/images/${image.id}/thumbnail`,
+        mimeType: image.mimeType,
+        size: image.size,
+        width: image.width,
+        height: image.height,
+        userId: image.userId,
+        username: image.user?.username ?? null,
+        status: ImageStatus.PENDING,
+        createdAt: image.createdAt,
+      })),
       total,
       page,
       limit,
@@ -200,11 +279,11 @@ export class ImageService {
     };
   }
 
-  async findMine(userId: string, page: number, limit: number) {
+  async findMine(userId: string, page: number, limit: number, status?: ImageStatus) {
     const skip = (page - 1) * limit;
 
     const [images, total] = await this.imageRepository.findAndCount({
-      where: { userId },
+      where: { userId, ...(status ? { status } : {}) },
       select: {
         id: true,
         filename: true,
@@ -215,6 +294,7 @@ export class ImageService {
         height: true,
         status: true,
         rejectReason: true,
+        userId: true,
         createdAt: true,
       },
       relations: {
@@ -231,6 +311,7 @@ export class ImageService {
       const { albums, ...rest } = img;
       return {
         ...rest,
+        thumbnailUrl: `/images/${img.id}/thumbnail`,
         archived: (albums?.length ?? 0) > 0,
       };
     });
@@ -299,7 +380,7 @@ export class ImageService {
     const image = await this.imageRepository.findOne({ where: { id: imageId } });
     if (!image) throw new NotFoundException('图片不存在');
 
-    if (image.status !== ImageStatus.APPROVED && !isStaff(currentUser?.role)) {
+    if (!this.canPreview(image, currentUser)) {
       throw new ForbiddenException('无权查看未通过审核的图片');
     }
 
@@ -337,7 +418,7 @@ export class ImageService {
 
     return {
       buffer: await this.fileService.readFile(thumbRelativePath),
-      mimeType: this.mimeFromPath(thumbRelativePath),
+      mimeType: mimeFromPath(thumbRelativePath),
     };
   }
 
@@ -346,7 +427,7 @@ export class ImageService {
     const expires = now + this.cacheTimeMs;
     const signature = this.createSignature(imageId, expires);
 
-    const url = new URL(`/images/${imageId}/download`, baseUrl);
+    const url = new URL(`/${API_PREFIX}/images/${imageId}/download`, baseUrl);
     url.searchParams.set('signature', signature);
     url.searchParams.set('expires', expires.toString());
 
@@ -443,25 +524,51 @@ export class ImageService {
     this.logger.log(`已清理用户 ${userId} 的全部图片 (${images.length} 张)`);
   }
 
-  async findOne(imageId: string, currentUser?: any): Promise<Image> {
+  async findOne(imageId: string, currentUser?: any): Promise<ImageResponseDto> {
     const image = await this.imageRepository.findOne({ where: { id: imageId } });
     if (!image) throw new NotFoundException(`图片 ID ${imageId} 不存在`);
 
-    if (image.status !== ImageStatus.APPROVED && !isStaff(currentUser?.role)) {
+    if (!this.canPreview(image, currentUser)) {
       throw new ForbiddenException('无权查看未通过审核的图片');
     }
-    return image;
+
+    return this.toDetailDto(image);
   }
 
-  private mimeFromPath(filePath: string): string {
-    const ext = path.extname(filePath).toLowerCase();
-    const mimeMap: Record<string, string> = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.webp': 'image/webp',
-      '.gif': 'image/gif',
+  /**
+   * 已过审图片人人可见；未过审图片仅审核员及以上与上传者本人可见。
+   * 上传者本人必须能看到自己待审/被拒的图片，否则改稿时无从对照。
+   */
+  private canPreview(image: Image, currentUser?: any): boolean {
+    if (image.status === ImageStatus.APPROVED) return true;
+    if (isStaff(currentUser?.role)) return true;
+    return !!currentUser?.id && image.userId === currentUser.id;
+  }
+
+  /** 列表项：在查询投影之上补一个可直接访问的缩略图地址，与上传/修改接口保持一致。 */
+  private toListImage(image: any): ImageListItemDto {
+    return {
+      ...image,
+      thumbnailUrl: `/images/${image.id}/thumbnail`,
     };
-    return mimeMap[ext] || 'application/octet-stream';
+  }
+
+  private toDetailDto(image: Image): ImageResponseDto {
+    return {
+      id: image.id,
+      filename: image.filename,
+      thumbnailPath: image.thumbnailPath,
+      thumbnailUrl: `/images/${image.id}/thumbnail`,
+      mimeType: image.mimeType,
+      size: image.size,
+      width: image.width,
+      height: image.height,
+      userId: image.userId,
+      status: image.status,
+      rejectReason: image.rejectReason,
+      editCount: image.editCount,
+      createdAt: image.createdAt,
+      updatedAt: image.updatedAt,
+    };
   }
 }

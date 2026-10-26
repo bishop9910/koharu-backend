@@ -7,14 +7,17 @@ import {
   ApiOkResponse,
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
+  ApiExtraModels,
 } from '@nestjs/swagger';
 import { AuditLogService } from './audit-log.service.js';
 import { ListAuditLogsQueryDto } from './dto/list-audit-logs-query.dto.js';
+import { AuditLog } from '../entities/audit-log.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
 import { MinRoleGuard, MinRole } from '../common/guards/role.guard.js';
 import { Role } from '../enums/role.enum.js';
 
 @ApiTags('audit-logs')
+@ApiExtraModels(AuditLog)
 @Controller('audit-logs')
 export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}

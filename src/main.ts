@@ -8,6 +8,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { dump } from 'js-yaml';
 import { version } from './version.js';
+import { API_PREFIX } from './common/constants.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Request, Response, NextFunction } from 'express';
@@ -20,7 +21,7 @@ async function bootstrap() {
   app.useLogger(logger);
 
   // 所有接口统一加 /api 前缀
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix(API_PREFIX);
 
   // 托管前端构建产物（SPA），非 /api、/api-doc 的 GET 请求回退到 index.html
   const frontendDir = path.resolve(

@@ -238,8 +238,11 @@ cleanup:
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
+| GET | `/auth/public-key` | 获取登录/改密用的 RSA 公钥（`PEM`） | 公开 |
 | POST | `/auth/login` | 登录，返回 Access/Refresh Token | 公开 |
 | POST | `/auth/refresh` | 刷新 Access Token | 公开 |
+
+> 登录响应为 `{ accessToken, refreshToken, expiresIn, user: { id, username, role } }`，`expiresIn` 单位为**毫秒**；`role` 取值是大写的 `SUPER_ADMIN` / `ADMIN` / `MODERATOR` / `USER` / `GUEST`。
 
 ### users（用户）
 
@@ -260,24 +263,27 @@ cleanup:
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | POST | `/images` | 上传图片（进待审核） | USER+（IP 限 500/天） |
-| POST | `/images/:id/review` | 审核图片 | MODERATOR+ |
+| POST | `/images/:id/review` | 审核图片（仅待审核图片，重复审核返回 `409`） | MODERATOR+ |
 | POST | `/images/:id/modify` | 修改图片（重置审核，终身一次） | 本人 |
-| GET | `/images` | 已过审图片列表 | 公开 |
-| GET | `/images/my` | 我的投稿（含 `archived` 归档标记） | 登录 |
-| GET | `/images/:id/thumbnail` | 缩略图流 | 已过审公开 / 未过审 MODERATOR+ |
-| GET | `/images/:id/sign` | 生成签名下载链接 | USER+ |
+| GET | `/images` | 图片列表（默认仅已过审；`?status=` 可按状态筛选） | 公开；按状态筛选需 MODERATOR+ |
+| GET | `/images/pending` | **待审核队列**（按上传时间正序，含 `id` 与上传者用户名） | MODERATOR+ |
+| GET | `/images/my` | 我的投稿（含 `archived` 归档标记，可用 `?status=` 过滤） | 登录 |
+| GET | `/images/:id/thumbnail` | 缩略图流 | 已过审公开 / 未过审 本人或 MODERATOR+ |
+| GET | `/images/:id/sign` | 生成签名下载链接（返回含 `/api` 前缀的绝对地址，有效期同 `expiresInMs`） | USER+ |
 | GET | `/images/:id/download` | 下载原图 | USER+ |
-| GET | `/images/:id` | 图片详情 | 已过审公开 / 未过审 MODERATOR+ |
+| GET | `/images/:id` | 图片详情（已脱敏，不含 `path`/`md5`/`uploaderIp`/`reviewedBy`） | 已过审公开 / 未过审 本人或 MODERATOR+ |
 | DELETE | `/images/:id` | 删除图片 | 本人/上级 |
+
+> 审核闭环：审核界面先调 `GET /images/pending` 取到待审核图片的 `id`，再调 `POST /images/:id/review`；`GET /images?status=pending` 是同一份数据的通用筛选入口（不排序、不带上传者）。上传者本人可以查看自己待审核/被拒的图片详情与缩略图，否则改稿时无从对照。
 
 ### albums（图集归档）
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | POST | `/albums` | 创建图集（可携带标签） | USER+ |
-| GET | `/albums` | 图集列表（可见性过滤） | 公开/可选登录 |
+| GET | `/albums` | 图集列表（公开图集 + 自己创建的私有图集） | 公开/可选登录 |
 | GET | `/albums/search` | 搜索图集（标题/描述模糊 + 标签全命中） | 公开/可选登录 |
-| GET | `/albums/:id` | 图集详情 | 可见性过滤 |
+| GET | `/albums/:id` | 图集详情 | 公开 / 本人 / MODERATOR+（私有图集对其余人返回 `404`） |
 | PATCH | `/albums/:id` | 修改图集信息 | 本人/上级 |
 | POST | `/albums/:id/unlock` | 解锁被锁定的图集 | ADMIN+ |
 | DELETE | `/albums/:id` | 删除图集（不删图片） | 本人/上级 |
@@ -296,7 +302,9 @@ cleanup:
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | POST | `/avatars/:userId` | 提交头像（进待审核） | 本人 |
-| POST | `/avatars/:userId/review` | 审核头像 | MODERATOR+ |
+| POST | `/avatars/:userId/review` | 审核头像（仅待审核投稿；响应 `{ message, status, avatar }`，拒绝时 `avatar` 为 `null`） | MODERATOR+ |
+| GET | `/avatars/pending` | **待审核头像队列**（含 `userId` 与用户名，按提交时间正序） | MODERATOR+ |
+| GET | `/avatars/:userId/pending/image` | 待审核头像图片流（审核前预览） | MODERATOR+ |
 | GET | `/avatars/:userId/image` | 当前头像图片流 | 公开（仅已过审） |
 | DELETE | `/avatars/:userId` | 删除头像 | 本人/上级 |
 
@@ -305,6 +313,26 @@ cleanup:
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | GET | `/audit-logs` | 分页查询操作日志（按操作者/动作/时间过滤） | ADMIN+ |
+
+### 响应结构（与 Swagger `/api-doc` 同源）
+
+上表之外的响应体形状，均以 `src/**/dto` 中的 DTO 为准；`/api-doc` 里的 `$ref` 指向同一批类，`/api-yaml` 可导出完整 schema。
+
+| 接口 | 响应体 |
+|---|---|
+| `POST /images`、`POST /images/:id/modify` | `{ message, image: ImageResponseDto }` |
+| `POST /images/:id/review`、`GET /images/:id` | `ImageResponseDto`（不含 `path`/`md5`/`uploaderIp`/`reviewedBy`） |
+| `GET /images` | `{ data: ImageListItemDto[], total, page, limit, totalPages }` |
+| `GET /images/my` | `{ data: MyImageListItemDto[], total, page, limit, totalPages }`（多 `rejectReason`、`archived`） |
+| `GET /images/pending` | `{ data: PendingImageDto[], total, page, limit, totalPages }`（多 `username`） |
+| `GET /images/:id/sign` | `{ downloadUrl, expiresInMs }` |
+| `GET /albums`、`GET /albums/search` | `{ data: AlbumSummaryDto[], total, page, limit, totalPages }` |
+| `POST /albums`、`GET/PATCH /albums/:id`、`POST /albums/:id/unlock`、`POST/DELETE /albums/:id/images` | `AlbumDetailDto`（`images` 项含 `thumbnailUrl`） |
+| `GET /users` | `{ data: UserListItemDto[], total, page, limit, totalPages }`（不含 `updatedAt`/`deletedAt`） |
+| 其余 users 接口 | `UserResponseDto`（`Omit<User, 'password'>`） |
+| `GET /audit-logs` | `{ data: AuditLog[], total, page, limit, totalPages }` |
+| `POST /avatars/:userId` | `{ message, submission: { id, status, createdAt } }` |
+| `POST /avatars/:userId/review` | `{ message, status: 'approved' \| 'rejected', avatar: { id, userId, createdAt } \| null }` |
 
 ---
 
@@ -320,6 +348,8 @@ cleanup:
    - 立即修改默认 `admin` 密码。
 6. **枚举变更注意**：Postgres 枚举（如 `role`、`visibility`）在 `synchronize` 下不会自动修改已存在的枚举类型，上线后请用 Migration 处理枚举/字段变更。
 7. **边界校验（路径参数）**：所有 `:id` / `:userId` 由 Controller 层的 `ParseUUIDPipe` 校验，格式非法（如 `GET /api/images/1`）直接返回 `400`，不会进入 Service 与数据库——避免非法值触发 PostgreSQL 的 `22P02 invalid input syntax for type uuid` 并被包装成 `500`。客户端请始终使用列表/详情接口返回的 `id`（UUID），不要用数组下标或自增序号。
+8. **审核状态机**：图片审核只能作用于当前 `pending` 的图片，重复审核返回 `409`；审核写入以读到的旧状态为条件（`UPDATE ... WHERE id = ? AND status = <旧状态>`），两名审核员同时审同一张图时后提交者收到 `409` 而不是覆盖前者的结论。头像审核同样只接受 `pending` 投稿。
+9. **未过审内容可见范围**：未过审（`pending` / `rejected`）的图片详情、缩略图仅上传者本人与 `MODERATOR+` 可见；公开详情统一返回脱敏投影（`ImageResponseDto`），不含 `path`、`md5`、`uploaderIp`、`reviewedBy`。
 
 ---
 

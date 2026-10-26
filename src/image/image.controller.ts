@@ -25,6 +25,7 @@ import {
   ApiBody,
   ApiResponse,
   ApiOkResponse,
+  ApiExtraModels,
 } from '@nestjs/swagger';
 import { ImageService } from './image.service.js';
 import { ConfigService } from '@nestjs/config';
@@ -32,12 +33,15 @@ import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard.js';
 import { MinRoleGuard, MinRole } from '../common/guards/role.guard.js';
 import { Role } from '../enums/role.enum.js';
-import { Image } from '../entities/image.entity.js';
 import { ReviewImageDto } from './dto/review-image.dto.js';
 import { DownloadImageQueryDto } from './dto/download-image-query.dto.js';
 import { ListImagesQueryDto } from './dto/list-images-query.dto.js';
+import { ImageResponseDto } from './dto/image-response.dto.js';
+import { ImageListItemDto, MyImageListItemDto, PendingImageDto } from './dto/image-list-item.dto.js';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('images')
+@ApiExtraModels(ImageListItemDto, MyImageListItemDto, PendingImageDto)
 @Controller('images')
 export class ImageController {
   constructor(
@@ -58,7 +62,7 @@ export class ImageController {
       type: 'object',
       properties: {
         message: { type: 'string', example: '图片上传成功，等待审核' },
-        image: { $ref: '#/components/schemas/Image' },
+        image: { $ref: '#/components/schemas/ImageResponseDto' },
       },
     },
   })
@@ -70,10 +74,7 @@ export class ImageController {
     if (!file) throw new BadRequestException('未找到上传的文件');
 
     const image = await this.imageService.upload(file, req.user, req.ip);
-    return {
-      message: '图片上传成功，等待审核',
-      image: { ...image, thumbnailUrl: `/images/${image.id}/thumbnail` },
-    };
+    return { message: '图片上传成功，等待审核', image };
   }
 
   @Post(':id/review')
@@ -81,9 +82,11 @@ export class ImageController {
   @UseGuards(JwtAuthGuard, MinRoleGuard)
   @MinRole(Role.MODERATOR)
   @ApiOperation({ summary: '审核图片 (审核员及以上)' })
-  @ApiOkResponse({ type: Image, description: '审核成功，返回更新后的图片信息' })
+  @ApiOkResponse({ type: ImageResponseDto, description: '审核成功，返回更新后的图片信息' })
   @ApiResponse({ status: 400, description: '拒绝时必须提供原因，或审核状态非法' })
   @ApiResponse({ status: 403, description: '权限不足' })
+  @ApiResponse({ status: 404, description: '图片不存在' })
+  @ApiResponse({ status: 409, description: '图片已是目标状态，或审核期间被其他审核员抢先处理' })
   async reviewImage(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReviewImageDto,
@@ -105,7 +108,7 @@ export class ImageController {
       type: 'object',
       properties: {
         message: { type: 'string', example: '图片已修改，等待重新审核' },
-        image: { $ref: '#/components/schemas/Image' },
+        image: { $ref: '#/components/schemas/ImageResponseDto' },
       },
     },
   })
@@ -114,22 +117,19 @@ export class ImageController {
   async modify(@Param('id', ParseUUIDPipe) id: string, @UploadedFile() file: Express.Multer.File, @Req() req: any) {
     if (!file) throw new BadRequestException('未找到上传的文件');
     const image = await this.imageService.modify(id, file, req.user);
-    return {
-      message: '图片已修改，等待重新审核',
-      image: { ...image, thumbnailUrl: `/images/${image.id}/thumbnail` },
-    };
+    return { message: '图片已修改，等待重新审核', image };
   }
 
   @Get('my')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '分页获取我的投稿', description: '返回当前用户上传的所有图片（含审核状态、拒绝原因、是否已归档 archived）' })
+  @ApiOperation({ summary: '分页获取我的投稿', description: '返回当前用户上传的所有图片（含审核状态、拒绝原因、是否已归档 archived），可用 status 只看某一审核状态' })
   @ApiOkResponse({
     description: '我的投稿分页列表',
     schema: {
       type: 'object',
       properties: {
-        data: { type: 'array', items: { $ref: '#/components/schemas/Image' } },
+        data: { type: 'array', items: { $ref: '#/components/schemas/MyImageListItemDto' } },
         total: { type: 'number', example: 10 },
         page: { type: 'number', example: 1 },
         limit: { type: 'number', example: 20 },
@@ -138,17 +138,50 @@ export class ImageController {
     },
   })
   async findMine(@Query() query: ListImagesQueryDto, @Req() req: any) {
-    return this.imageService.findMine(req.user.id, query.page ?? 1, query.limit ?? 20);
+    return this.imageService.findMine(req.user.id, query.page ?? 1, query.limit ?? 20, query.status);
   }
 
-  @Get()
-  @ApiOperation({ summary: '分页获取已过审图片列表', description: '公开接口，游客可访问，仅返回已通过审核的图片' })
+  @Get('pending')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, MinRoleGuard)
+  @MinRole(Role.MODERATOR)
+  @ApiOperation({
+    summary: '获取待审核图片队列 (审核员及以上)',
+    description: '按上传时间正序（先来先审）返回待审核图片的 id 与摘要，POST /images/:id/review 的 :id 即取自这里',
+  })
   @ApiOkResponse({
-    description: '已过审图片分页列表',
+    description: '待审核图片分页列表',
     schema: {
       type: 'object',
       properties: {
-        data: { type: 'array', items: { $ref: '#/components/schemas/Image' } },
+        data: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/PendingImageDto' },
+        },
+        total: { type: 'number', example: 3 },
+        page: { type: 'number', example: 1 },
+        limit: { type: 'number', example: 20 },
+        totalPages: { type: 'number', example: 1 },
+      },
+    },
+  })
+  @ApiResponse({ status: 403, description: '权限不足：需要 MODERATOR 及以上角色' })
+  async findPending(@Query() query: PaginationQueryDto) {
+    return this.imageService.findPending(query.page ?? 1, query.limit ?? 20);
+  }
+
+  @Get()
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary: '分页获取图片列表',
+    description: '公开接口，默认只返回已过审图片；审核员及以上可通过 status 筛选任意审核状态',
+  })
+  @ApiOkResponse({
+    description: '图片分页列表',
+    schema: {
+      type: 'object',
+      properties: {
+        data: { type: 'array', items: { $ref: '#/components/schemas/ImageListItemDto' } },
         total: { type: 'number', example: 120 },
         page: { type: 'number', example: 1 },
         limit: { type: 'number', example: 20 },
@@ -156,37 +189,40 @@ export class ImageController {
       },
     },
   })
-  async findAll(@Query() query: ListImagesQueryDto) {
-    return this.imageService.findAll(query.page ?? 1, query.limit ?? 20);
+  @ApiResponse({ status: 403, description: '非审核员尝试按审核状态筛选' })
+  async findAll(@Query() query: ListImagesQueryDto, @Req() req: any) {
+    return this.imageService.findAll(query.page ?? 1, query.limit ?? 20, query.status, req.user);
   }
 
   @Get(':id/thumbnail')
   @UseGuards(OptionalJwtAuthGuard)
-  @ApiOperation({ summary: '获取缩略图流', description: '已过审图片游客可预览；未过审图片仅审核员及以上可查看' })
+  @ApiOperation({ summary: '获取缩略图流', description: '已过审图片游客可预览；未过审图片仅审核员及以上或上传者本人可查看' })
   @ApiResponse({ status: 200, description: '返回图片二进制流（PNG/WebP 原图产出 WebP 缩略图，其余格式产出 JPEG）', content: { 'image/webp': { schema: { type: 'string', format: 'binary' } }, 'image/jpeg': { schema: { type: 'string', format: 'binary' } } } })
   @ApiResponse({ status: 403, description: '无权查看未通过审核的图片' })
   @ApiResponse({ status: 404, description: '图片不存在' })
   @ApiResponse({ status: 500, description: '原图文件丢失或完整性校验失败，无法生成缩略图' })
   async getThumbnail(@Param('id', ParseUUIDPipe) id: string, @Req() req: any, @Res() res: Response) {
     const { buffer, mimeType } = await this.imageService.getThumbnail(id, req.user);
-    res.set({ 'Content-Type': mimeType, 'Cache-Control': 'public, max-age=86400' });
+    // private：未过审图片只对审核员/本人开放，不能被共享缓存留存
+    res.set({ 'Content-Type': mimeType, 'Cache-Control': 'private, max-age=86400' });
     res.send(buffer);
   }
 
   @Get(':id/sign')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '生成带签名的限时下载链接', description: '仅 USER 及以上角色可生成下载链接' })
+  @ApiOperation({ summary: '生成带签名的限时下载链接', description: '仅 USER 及以上角色可生成下载链接；downloadUrl 是含协议与主机名的绝对地址，有效期等于 expiresInMs' })
   @ApiOkResponse({
     description: '返回下载链接及过期时间',
     schema: {
       type: 'object',
       properties: {
-        downloadUrl: { type: 'string', example: 'http://localhost:9910/images/xxx/download?signature=abc&expires=123' },
+        downloadUrl: { type: 'string', example: '/api/images/550e8400-e29b-41d4-a716-446655440000/download?signature=abc&expires=1767225600000' },
         expiresInMs: { type: 'number', example: 86400000 },
       },
     },
   })
+  @ApiResponse({ status: 401, description: '未授权' })
   async generateSignedUrl(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const signedUrl = this.imageService.generateSignedUrl(id, baseUrl);
@@ -200,9 +236,11 @@ export class ImageController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: '下载原图 (需登录 + 有效签名)', description: '仅 USER 及以上角色可下载；未过审图片仅审核员及以上可下载' })
-  @ApiResponse({ status: 200, description: '返回原图二进制流', content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } } })
+  @ApiResponse({ status: 200, description: '返回原图二进制流，Content-Type 为原图实际的 MIME，并带 Content-Disposition: attachment', content: { 'image/jpeg': { schema: { type: 'string', format: 'binary' } }, 'image/png': { schema: { type: 'string', format: 'binary' } }, 'image/webp': { schema: { type: 'string', format: 'binary' } }, 'image/gif': { schema: { type: 'string', format: 'binary' } } } })
   @ApiResponse({ status: 400, description: '签名无效或已过期' })
   @ApiResponse({ status: 403, description: '图片已被拒绝或无权下载未过审图片' })
+  @ApiResponse({ status: 404, description: '图片不存在' })
+  @ApiResponse({ status: 500, description: '原图文件丢失或完整性校验失败' })
   async downloadOriginal(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: DownloadImageQueryDto,
@@ -220,8 +258,8 @@ export class ImageController {
 
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
-  @ApiOperation({ summary: '获取图片详情', description: '已过审图片游客可访问；未过审图片仅审核员及以上可访问' })
-  @ApiOkResponse({ type: Image, description: '返回图片详细信息' })
+  @ApiOperation({ summary: '获取图片详情', description: '已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / md5 / uploaderIp / reviewedBy' })
+  @ApiOkResponse({ type: ImageResponseDto, description: '返回图片详细信息' })
   @ApiResponse({ status: 403, description: '无权查看未通过审核的图片' })
   @ApiResponse({ status: 404, description: '图片不存在' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {

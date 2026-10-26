@@ -20,6 +20,7 @@ import {
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
+import { Role } from '../enums/role.enum.js';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -71,7 +72,7 @@ export class AuthController {
           properties: {
             id: { type: 'string' },
             username: { type: 'string' },
-            role: { type: 'string', enum: ['admin', 'user', 'guest', 'moderator'] }
+            role: { type: 'string', enum: Object.values(Role), example: Role.USER }
           }
         }
       }

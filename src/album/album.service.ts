@@ -337,13 +337,15 @@ export class AlbumService {
 
   private applyVisibility(qb: any, currentUser: any) {
     if (isStaff(currentUser?.role)) return;
+    // 用 andWhere：可见性只是筛选条件之一，调用方后续还会追加 title/tag 等 andWhere，
+    // 用 where 会把已有条件整段覆盖掉。
     if (currentUser) {
-      qb.where('(album.visibility = :pub OR album.ownerId = :uid)', {
+      qb.andWhere('(album.visibility = :pub OR album.ownerId = :uid)', {
         pub: AlbumVisibility.PUBLIC,
         uid: currentUser.id,
       });
     } else {
-      qb.where('album.visibility = :pub', { pub: AlbumVisibility.PUBLIC });
+      qb.andWhere('album.visibility = :pub', { pub: AlbumVisibility.PUBLIC });
     }
   }
 
@@ -386,6 +388,7 @@ export class AlbumService {
         id: i.id,
         filename: i.filename,
         thumbnailPath: i.thumbnailPath,
+        thumbnailUrl: `/images/${i.id}/thumbnail`,
         status: i.status,
       })),
       createdAt: album.createdAt,

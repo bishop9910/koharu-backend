@@ -5,6 +5,7 @@ import {
   Get,
   Delete,
   Param,
+  Query,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
@@ -28,19 +29,16 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { AvatarService } from './avatar.service.js';
-import { FileService } from '../common/file/file.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
 import { MinRoleGuard, MinRole } from '../common/guards/role.guard.js';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { Role } from '../enums/role.enum.js';
 import { ReviewAvatarDto } from './dto/review-avatar.dto.js';
 
 @ApiTags('avatars')
 @Controller('avatars')
 export class AvatarController {
-  constructor(
-    private readonly avatarService: AvatarService,
-    private readonly fileService: FileService,
-  ) {}
+  constructor(private readonly avatarService: AvatarService) {}
 
   @Post(':userId')
   @ApiBearerAuth()
@@ -55,7 +53,14 @@ export class AvatarController {
       type: 'object',
       properties: {
         message: { type: 'string', example: '头像已提交，等待审核' },
-        submission: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string', example: 'pending' } } },
+        submission: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            status: { type: 'string', enum: ['pending', 'approved', 'rejected'], example: 'pending' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
       },
     },
   })
@@ -87,8 +92,27 @@ export class AvatarController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, MinRoleGuard)
   @MinRole(Role.MODERATOR)
-  @ApiOperation({ summary: '审核头像 (审核员及以上)', description: 'approved 会替换当前头像；rejected 会作废投稿并回退到上一个头像' })
-  @ApiOkResponse({ description: '审核完成' })
+  @ApiOperation({ summary: '审核头像 (审核员及以上)', description: 'approved 会替换当前头像；rejected 会作废投稿并回退到上一个头像。两种结果的响应形状一致，avatar 为 null 表示没有产生当前头像' })
+  @ApiOkResponse({
+    description: '审核完成',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: '头像已通过审核' },
+        status: { type: 'string', enum: ['approved', 'rejected'], example: 'approved' },
+        avatar: {
+          type: 'object',
+          nullable: true,
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            userId: { type: 'string', format: 'uuid' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+          description: '通过时为新当前头像的标识；拒绝时（或头像记录不落库时）为 null',
+        },
+      },
+    },
+  })
   @ApiResponse({ status: 400, description: '拒绝时必须提供原因，或审核状态非法' })
   @ApiResponse({ status: 403, description: '权限不足' })
   @ApiResponse({ status: 404, description: '该用户没有待审核的头像' })
@@ -98,6 +122,73 @@ export class AvatarController {
     @Req() req: any,
   ) {
     return this.avatarService.review(userId, dto.status, req.user.id, dto.reason);
+  }
+
+  @Get('pending')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, MinRoleGuard)
+  @MinRole(Role.MODERATOR)
+  @ApiOperation({
+    summary: '获取待审核头像队列 (审核员及以上)',
+    description: '按提交时间正序返回待审核头像的 userId 与用户名，POST /avatars/:userId/review 的 :userId 即取自这里',
+  })
+  @ApiOkResponse({
+    description: '待审核头像分页列表',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              submissionId: { type: 'string', format: 'uuid' },
+              userId: { type: 'string', format: 'uuid' },
+              username: { type: 'string', nullable: true, example: 'alice' },
+              status: { type: 'string', enum: ['pending', 'approved', 'rejected'], example: 'pending' },
+              imageUrl: {
+                type: 'string',
+                example: '/avatars/550e8400-e29b-41d4-a716-446655440000/pending/image',
+              },
+              createdAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+        total: { type: 'number', example: 2 },
+        page: { type: 'number', example: 1 },
+        limit: { type: 'number', example: 20 },
+        totalPages: { type: 'number', example: 1 },
+      },
+    },
+  })
+  @ApiResponse({ status: 403, description: '权限不足：需要 MODERATOR 及以上角色' })
+  async findPending(@Query() query: PaginationQueryDto) {
+    return this.avatarService.findPending(query.page ?? 1, query.limit ?? 20);
+  }
+
+  @Get(':userId/pending/image')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, MinRoleGuard)
+  @MinRole(Role.MODERATOR)
+  @ApiOperation({
+    summary: '获取待审核头像图片流 (审核员及以上)',
+    description: '审核前预览投稿图片；该用户没有待审核头像时返回 404',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '返回待审核头像二进制流',
+    content: {
+      'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+      'image/png': { schema: { type: 'string', format: 'binary' } },
+      'image/webp': { schema: { type: 'string', format: 'binary' } },
+      'image/gif': { schema: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiResponse({ status: 404, description: '该用户没有待审核的头像' })
+  async getPendingImage(@Param('userId', ParseUUIDPipe) userId: string, @Res() res: Response) {
+    const { buffer, mimeType } = await this.avatarService.getPendingImage(userId);
+    res.set({ 'Content-Type': mimeType, 'Cache-Control': 'no-store' });
+    res.send(buffer);
   }
 
   @Get(':userId/image')
@@ -112,36 +203,12 @@ export class AvatarController {
       'image/gif': { schema: { type: 'string', format: 'binary' } },
     },
   })
-  @ApiResponse({ status: 400, description: '该用户暂无头像或文件读取失败' })
-  async getImage(
-    @Param('userId', ParseUUIDPipe) userId: string,
-    @Res() res: Response,
-  ) {
-    const avatar = await this.avatarService.findByUserId(userId);
-    if (!avatar) {
-      throw new BadRequestException('该用户暂无头像');
-    }
-
-    try {
-      const buffer = await this.fileService.readFile(avatar.path);
-      const ext = avatar.path.split('.').pop()?.toLowerCase() || '';
-
-      const mimeMap: Record<string, string> = {
-        jpg: 'image/jpeg',
-        jpeg: 'image/jpeg',
-        png: 'image/png',
-        webp: 'image/webp',
-        gif: 'image/gif',
-      };
-
-      res.set({
-        'Content-Type': mimeMap[ext] || 'application/octet-stream',
-        'Cache-Control': 'public, max-age=86400',
-      });
-      res.send(buffer);
-    } catch {
-      throw new BadRequestException('头像文件读取失败');
-    }
+  @ApiResponse({ status: 400, description: '该用户暂无头像' })
+  @ApiResponse({ status: 404, description: '头像文件不存在' })
+  async getImage(@Param('userId', ParseUUIDPipe) userId: string, @Res() res: Response) {
+    const { buffer, mimeType } = await this.avatarService.getCurrentImage(userId);
+    res.set({ 'Content-Type': mimeType, 'Cache-Control': 'public, max-age=86400' });
+    res.send(buffer);
   }
 
   @Delete(':userId')

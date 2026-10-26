@@ -21,6 +21,7 @@ import {
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiExtraModels,
 } from '@nestjs/swagger';
 import { UserService } from './user.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
@@ -31,9 +32,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
 import { MinRoleGuard, MinRole } from '../common/guards/role.guard.js';
 import { Role } from '../enums/role.enum.js';
 import { UserResponseDto } from './dto/user-response.dto.js';
+import { UserListItemDto } from './dto/user-list-item.dto.js';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 
 @ApiTags('users')
+@ApiExtraModels(UserListItemDto)
 @Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) {}
@@ -60,7 +63,7 @@ export class UserController {
     schema: {
       type: 'object',
       properties: {
-        data: { type: 'array', items: { $ref: '#/components/schemas/UserResponseDto' } },
+        data: { type: 'array', items: { $ref: '#/components/schemas/UserListItemDto' } },
         total: { type: 'number', example: 150 },
         page: { type: 'number', example: 1 },
         limit: { type: 'number', example: 20 },

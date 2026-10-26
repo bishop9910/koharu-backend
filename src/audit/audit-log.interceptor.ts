@@ -27,8 +27,10 @@ export class AuditLogInterceptor implements NestInterceptor {
     }
 
     res.on('finish', () => {
-      const routePath = (req as any).route?.path ?? (req.originalUrl?.split('?')[0] ?? req.url);
-      const detail = req.path === '/auth/login' ? { username: (req.body as any)?.username } : null;
+      const requestPath = req.originalUrl?.split('?')[0] ?? req.url;
+      const routePath = (req as any).route?.path ?? requestPath;
+      // 全局前缀是 /api，req.path 实际为 /api/auth/login；用后缀匹配，避免跟随前缀配置失效
+      const detail = requestPath.endsWith('/auth/login') ? { username: (req.body as any)?.username ?? null } : null;
 
       void this.auditLogService.record({
         actorId: (req as any).user?.id ?? null,
@@ -36,7 +38,7 @@ export class AuditLogInterceptor implements NestInterceptor {
         actorRole: (req as any).user?.role ?? null,
         action: `${method} ${routePath}`,
         method,
-        path: req.originalUrl?.split('?')[0] ?? req.url,
+        path: requestPath,
         statusCode: res.statusCode,
         ip: req.ip ?? null,
         userAgent: req.headers?.['user-agent'] ?? null,

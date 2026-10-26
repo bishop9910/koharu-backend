@@ -12,6 +12,7 @@ import {
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Role } from '../enums/role.enum.js';
 import { type Avatar } from './avatar.entity.js';
+import { UserAvatarDto } from '../user/dto/user-avatar.dto.js';
 
 @Entity('users')
 export class User {
@@ -49,7 +50,7 @@ export class User {
   @Column({ default: true })
   emailVerified: boolean;
 
-  @ApiPropertyOptional({ description: '关联的头像信息' })
+  @ApiPropertyOptional({ description: '关联的头像信息', type: () => UserAvatarDto, nullable: true })
   @OneToOne('Avatar', (avatar: Avatar) => avatar.user, {
     cascade: true, 
     eager: false, 
@@ -64,7 +65,7 @@ export class User {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @ApiPropertyOptional({ description: '软删除时间' })
+  @ApiPropertyOptional({ description: '软删除时间（未删除时为 null）', nullable: true })
   @DeleteDateColumn()
   deletedAt: Date;
 }

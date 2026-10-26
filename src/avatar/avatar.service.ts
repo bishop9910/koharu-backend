@@ -8,11 +8,12 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Avatar } from '../entities/avatar.entity.js';
 import { AvatarSubmission } from '../entities/avatar-submission.entity.js';
 import { User } from '../entities/user.entity.js';
 import { FileService } from '../common/file/file.service.js';
+import { mimeFromPath } from '../common/utils/mime.util.js';
 import { AvatarStatus } from '../enums/avatar-status.enum.js';
 import { canManageTarget } from '../common/utils/role.util.js';
 
@@ -75,7 +76,7 @@ export class AvatarService {
       await this.submissionRepository.remove(pending);
 
       this.logger.log(`审核员 ${reviewerId} 拒绝用户 ${userId} 的头像 (${reason})，已作废并回退到上一个头像`);
-      return { message: '头像已拒绝并作废，已回退到上一个头像' };
+      return { message: '头像已拒绝并作废，已回退到上一个头像', status, avatar: null };
     }
 
     const current = await this.avatarRepository.findOne({ where: { userId } });
@@ -86,18 +87,96 @@ export class AvatarService {
       const updated = await this.avatarRepository.save(current);
       await this.submissionRepository.remove(pending);
       this.logger.log(`审核员 ${reviewerId} 通过用户 ${userId} 的头像，已更新当前头像`);
-      return updated;
+      return {
+        message: '头像已通过审核',
+        status,
+        avatar: { id: updated.id, userId: updated.userId, createdAt: updated.createdAt },
+      };
     }
 
     const avatar = this.avatarRepository.create({ userId, path: pending.path });
     const saved = await this.avatarRepository.save(avatar);
     await this.submissionRepository.remove(pending);
     this.logger.log(`审核员 ${reviewerId} 通过用户 ${userId} 的头像，已创建当前头像`);
-    return saved;
+    return {
+      message: '头像已通过审核',
+      status,
+      avatar: { id: saved.id, userId: saved.userId, createdAt: saved.createdAt },
+    };
   }
 
   async findByUserId(userId: string): Promise<Avatar | null> {
     return await this.avatarRepository.findOne({ where: { userId } });
+  }
+
+  /**
+   * 待审核头像队列：审核界面靠它拿到 userId 再去调 POST /avatars/:userId/review。
+   * AvatarSubmission 没有 User 关系（生产 synchronize=false，不新增关联），
+   * 这里按 userId 批量补 username，避免 N+1。
+   */
+  async findPending(page: number, limit: number) {
+    const skip = (page - 1) * limit;
+
+    const [submissions, total] = await this.submissionRepository.findAndCount({
+      where: { status: AvatarStatus.PENDING },
+      skip,
+      take: limit,
+      order: {
+        createdAt: 'ASC',
+      },
+    });
+
+    const userIds = [...new Set(submissions.map((submission) => submission.userId))];
+    const users = userIds.length
+      ? await this.userRepository.find({
+          where: { id: In(userIds) },
+          select: { id: true, username: true },
+        })
+      : [];
+    const usernames = new Map(users.map((user) => [user.id, user.username]));
+
+    return {
+      data: submissions.map((submission) => ({
+        submissionId: submission.id,
+        userId: submission.userId,
+        username: usernames.get(submission.userId) ?? null,
+        status: submission.status,
+        imageUrl: `/avatars/${submission.userId}/pending/image`,
+        createdAt: submission.createdAt,
+      })),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /** 审核员查看待审核头像图片；没有待审投稿时报 404。 */
+  async getPendingImage(userId: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    const pending = await this.submissionRepository.findOne({
+      where: { userId, status: AvatarStatus.PENDING },
+    });
+    if (!pending) {
+      throw new NotFoundException('该用户没有待审核的头像');
+    }
+
+    return {
+      buffer: await this.fileService.readFile(pending.path),
+      mimeType: mimeFromPath(pending.path),
+    };
+  }
+
+  /** 当前已过审头像；没有头像时报 400。 */
+  async getCurrentImage(userId: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    const avatar = await this.findByUserId(userId);
+    if (!avatar) {
+      throw new BadRequestException('该用户暂无头像');
+    }
+
+    return {
+      buffer: await this.fileService.readFile(avatar.path),
+      mimeType: mimeFromPath(avatar.path),
+    };
   }
 
   async removeAllByUser(userId: string): Promise<void> {

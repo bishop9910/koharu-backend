@@ -21,6 +21,7 @@ import {
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiExtraModels,
 } from '@nestjs/swagger';
 import { AlbumService } from './album.service.js';
 import { CreateAlbumDto } from './dto/create-album.dto.js';
@@ -28,12 +29,14 @@ import { UpdateAlbumDto } from './dto/update-album.dto.js';
 import { UpdateAlbumImagesDto } from './dto/update-album-images.dto.js';
 import { ListAlbumsQueryDto } from './dto/list-albums-query.dto.js';
 import { SearchAlbumsQueryDto } from './dto/search-albums-query.dto.js';
+import { AlbumDetailDto, AlbumSummaryDto } from './dto/album-response.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard.js';
 import { MinRoleGuard, MinRole } from '../common/guards/role.guard.js';
 import { Role } from '../enums/role.enum.js';
 
 @ApiTags('albums')
+@ApiExtraModels(AlbumSummaryDto, AlbumDetailDto)
 @Controller('albums')
 export class AlbumController {
   constructor(private readonly albumService: AlbumService) {}
@@ -42,7 +45,8 @@ export class AlbumController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: '创建图集', description: '仅 USER 及以上角色可创建，可携带已存在的标签' })
-  @ApiOkResponse({ description: '创建成功，返回图集详情' })
+  @ApiOkResponse({ type: AlbumDetailDto, description: '创建成功，返回图集详情' })
+  @ApiResponse({ status: 400, description: '标签不存在' })
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   async create(@Body() dto: CreateAlbumDto, @Req() req: any) {
     return this.albumService.create(dto, req.user);
@@ -50,25 +54,49 @@ export class AlbumController {
 
   @Get('search')
   @UseGuards(OptionalJwtAuthGuard)
-  @ApiOperation({ summary: '搜索图集', description: '标题/描述模糊匹配 与 标签全部命中；仅返回当前用户可见的图集' })
-  @ApiOkResponse({ description: '搜索结果分页列表' })
+  @ApiOperation({ summary: '搜索图集', description: '标题/描述模糊匹配 与 标签全部命中；仅返回当前用户可见的图集（公开或本人创建）' })
+  @ApiOkResponse({
+    description: '搜索结果分页列表',
+    schema: {
+      type: 'object',
+      properties: {
+        data: { type: 'array', items: { $ref: '#/components/schemas/AlbumSummaryDto' } },
+        total: { type: 'number', example: 3 },
+        page: { type: 'number', example: 1 },
+        limit: { type: 'number', example: 20 },
+        totalPages: { type: 'number', example: 1 },
+      },
+    },
+  })
   async search(@Query() query: SearchAlbumsQueryDto, @Req() req: any) {
     return this.albumService.search(query, req.user);
   }
 
   @Get()
   @UseGuards(OptionalJwtAuthGuard)
-  @ApiOperation({ summary: '分页获取图集列表', description: '公开图集游客可见；私有图集仅本人或管理员可见' })
-  @ApiOkResponse({ description: '图集分页列表' })
+  @ApiOperation({ summary: '分页获取图集列表', description: '公开图集游客可见；私有图集只出现在本人的列表里（审核员及以上可在详情接口按 id 直接访问）' })
+  @ApiOkResponse({
+    description: '图集分页列表',
+    schema: {
+      type: 'object',
+      properties: {
+        data: { type: 'array', items: { $ref: '#/components/schemas/AlbumSummaryDto' } },
+        total: { type: 'number', example: 12 },
+        page: { type: 'number', example: 1 },
+        limit: { type: 'number', example: 20 },
+        totalPages: { type: 'number', example: 1 },
+      },
+    },
+  })
   async findAll(@Query() query: ListAlbumsQueryDto, @Req() req: any) {
     return this.albumService.findAll(query, req.user);
   }
 
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
-  @ApiOperation({ summary: '获取图集详情', description: '包含完整图片与标签；私有图集仅本人或管理员可见' })
-  @ApiOkResponse({ description: '图集详情' })
-  @ApiNotFoundResponse({ description: '图集不存在' })
+  @ApiOperation({ summary: '获取图集详情', description: '包含完整图片与标签；私有图集仅本人或审核员及以上可访问，其余返回 404' })
+  @ApiOkResponse({ type: AlbumDetailDto, description: '图集详情' })
+  @ApiNotFoundResponse({ description: '图集不存在，或私有图集对当前用户不可见' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.albumService.findOne(id, req.user);
   }
@@ -77,7 +105,8 @@ export class AlbumController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: '修改图集信息', description: '本人可修改（除非被管理员锁定）；上级角色可修改，设为私有会锁定图集' })
-  @ApiOkResponse({ description: '更新成功，返回图集详情' })
+  @ApiOkResponse({ type: AlbumDetailDto, description: '更新成功，返回图集详情' })
+  @ApiResponse({ status: 400, description: '标签不存在' })
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权修改该图集' })
   @ApiNotFoundResponse({ description: '图集不存在' })
@@ -103,7 +132,7 @@ export class AlbumController {
   @UseGuards(JwtAuthGuard, MinRoleGuard)
   @MinRole(Role.ADMIN)
   @ApiOperation({ summary: '解锁图集', description: '仅管理员及以上可解锁被锁定的图集，解锁后恢复公开，本人可重新修改' })
-  @ApiOkResponse({ description: '解锁成功，返回图集详情' })
+  @ApiOkResponse({ type: AlbumDetailDto, description: '解锁成功，返回图集详情' })
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '权限不足或无权解锁该图集' })
   @ApiNotFoundResponse({ description: '图集不存在' })
@@ -115,8 +144,9 @@ export class AlbumController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: '向图集归档图片', description: '仅可归档已过审的图片；本人只能归档自己的图片' })
-  @ApiOkResponse({ description: '归档成功，返回图集详情' })
+  @ApiOkResponse({ type: AlbumDetailDto, description: '归档成功，返回图集详情' })
   @ApiResponse({ status: 400, description: '图片不存在或未过审' })
+  @ApiNotFoundResponse({ description: '图集不存在' })
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权修改该图集' })
   async addImages(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAlbumImagesDto, @Req() req: any) {
@@ -127,7 +157,8 @@ export class AlbumController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: '从图集移除图片', description: '仅移除归档关系，不会删除图片本身' })
-  @ApiOkResponse({ description: '移除成功，返回图集详情' })
+  @ApiOkResponse({ type: AlbumDetailDto, description: '移除成功，返回图集详情' })
+  @ApiNotFoundResponse({ description: '图集不存在' })
   @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
   @ApiForbiddenResponse({ description: '无权修改该图集' })
   async removeImages(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAlbumImagesDto, @Req() req: any) {

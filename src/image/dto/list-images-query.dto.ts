@@ -1,32 +1,17 @@
 // src/image/dto/list-images-query.dto.ts
-import { IsOptional, IsInt, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsEnum } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
+import { ImageStatus } from '../../enums/image-status.enum.js';
 
-export class ListImagesQueryDto {
+export class ListImagesQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
-    description: '页码 (从 1 开始)',
-    example: 1,
-    minimum: 1,
-    default: 1,
+    description:
+      '按审核状态筛选。GET /images 默认只返回已过审图片，仅审核员及以上可按状态筛选；GET /images/my 恒为本人投稿',
+    enum: ImageStatus,
+    example: ImageStatus.PENDING,
   })
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: '页码必须大于等于 1' })
-  page?: number = 1;
-
-  @ApiPropertyOptional({
-    description: '每页数量',
-    example: 20,
-    minimum: 1,
-    maximum: 100,
-    default: 20,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: '每页数量必须大于等于 1' })
-  @Max(100, { message: '每页数量不能超过 100' })
-  limit?: number = 20;
+  @IsEnum(ImageStatus, { message: '审核状态只能是 pending / approved / rejected' })
+  status?: ImageStatus;
 }

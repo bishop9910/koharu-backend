@@ -13,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
+import { UserListItemDto } from './dto/user-list-item.dto.js';
 import { Role } from '../enums/role.enum.js';
 import { canManageTarget, assignableRoles } from '../common/utils/role.util.js';
 import { RsaService } from '../common/security/rsa.service.js';
@@ -88,7 +89,25 @@ export class UserService {
     });
 
     return {
-      data: users,
+      data: users.map(
+        (user: any): UserListItemDto => ({
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          bio: user.bio,
+          emailVerified: user.emailVerified,
+          avatar: user.avatar
+            ? {
+                id: user.avatar.id,
+                path: user.avatar.path,
+                userId: user.avatar.userId,
+                createdAt: user.avatar.createdAt,
+              }
+            : null,
+          createdAt: user.createdAt,
+        }),
+      ),
       total,
       page,
       limit,
