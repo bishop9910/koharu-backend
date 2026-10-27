@@ -88,7 +88,7 @@
 | `POST /api/avatars/{userId}` | 本人；同时只能有一条 pending |
 | `DELETE /api/avatars/{userId}` | 本人 或 `canManageTarget` |
 | `GET /api/avatars/pending` | MODERATOR+ |
-| `GET /api/avatars/{userId}/pending/image` | MODERATOR+ |
+| `GET /api/avatars/{userId}/pending/image` | 本人 或 MODERATOR+（本人要能预览自己刚提交的图） |
 | `POST /api/avatars/{userId}/review` | MODERATOR+，且不能审自己 |
 
 ### 图集与标签

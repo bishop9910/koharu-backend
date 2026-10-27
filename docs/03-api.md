@@ -45,7 +45,7 @@
 | GET | `/api/users` | MODERATOR+ | `Paginated<UserListItemDto>` |
 | GET | `/api/users/me` | USER+ | `UserResponseDto` |
 | PATCH | `/api/users/me/password` | USER+ | `{ message: string }` |
-| GET | `/api/users/{id}/public` | 公开 | `{ id, username, bio, role, avatar: { path } \| null }` |
+| GET | `/api/users/{id}/public` | 公开 | `{ id, username, bio, role, avatar: { path } \| null, avatarUrl }` |
 | GET | `/api/users/{id}` | 本人或管理员+ | `UserResponseDto` |
 | PATCH | `/api/users/{id}` | 本人或管理员+ | `UserResponseDto` |
 | DELETE | `/api/users/{id}` | 本人或管理员+ | `{ message: string }` |
@@ -73,11 +73,13 @@
 
 - `GET /api/images` 默认只返回已过审图片；`?status=pending|approved|rejected` 需要 MODERATOR+，否则 `403`。
 - 未过审图片（pending / rejected）只能由审核员及以上与上传者本人访问详情与缩略图，其他人一律 `403`。
-- `GET /api/images/{id}/download` 不认角色，只认 `signature` + `expires`；已过审图片的签名谁都能用，未过审的签名在下载时仍会按角色二次校验。
-- `GET /api/images/{id}/sign` 对不存在的 id 返回 `404`（不会签出无效链接）。
+- `GET /api/images/{id}/download` 先验 `signature` + `expires`，再按 `canPreview` 校验身份：已过审图片的签名谁都能用，未过审的只有在场身份是本人或 MODERATOR+ 才放行。
+- `GET /api/images/{id}/sign` 对不存在的 id 返回 `404`；对「未过审且你不是本人/审核员」的图片返回 `403`——不会先给链接、下载时才失败。
 - 响应里所有 `thumbnailUrl` 都是 `/api/images/{id}/thumbnail`，带全局前缀，可直接作为 `<img src>`。
 - `ImageResponseDto` 含 `md5`（原图内容的 MD5，hex），`GET /api/images/{id}/download` 同时在响应头给出 `X-Content-MD5`，前端可以下载后自行比对做完整性校验。
-- 图片接口既认 `Authorization: Bearer <token>`，也认登录/刷新时下发的 `koharu_token` Cookie（`HttpOnly`、`SameSite=Lax`）。`<img>`、`<a download>` 这类浏览器原生的请求带不了自定义头，靠 Cookie 才能拿到「本人可见但未过审」的缩略图与原图。
+- 图片接口既认 `authorization: Bearer <token>`，也认登录/刷新时下发的 `koharu_token` Cookie（`HttpOnly`、`SameSite=Lax`）。`<img>`、`<a download>` 这类浏览器原生的请求带不了自定义头，靠 Cookie 才能拿到「本人可见但未过审」的缩略图与原图；前后端不同源、Cookie 被 `SameSite` 拦掉时，可在这类 GET 图片地址上加 `?access_token=<token>` 兜底（Token 会进访问日志，仅建议用于图片流）。
+- 带了凭证但已失效（过期/伪造/用户被删）时返回 `401 登录状态已失效，请重新登录`；完全不带凭证才按游客处理。这样前端不会把「Token 过期」误判成「权限不足」。
+- 这三种携带方式在 `openapi.json` 里也落了地：`components.securitySchemes` 有 `bearer` 与 `koharu_token`（cookie）两套；缩略图 / 签名 / 下载三个图片流接口把 `?access_token=` 声明为可选 query 参数，且因为都允许游客访问，**不声明必选认证**；`GET /api/avatars/{userId}/pending/image` 必须登录，所以它的 `security` 是 `[{koharu_token}, {bearer}]`（二者之一）。
 - 原图与缩略图在磁盘上是 AES-256-GCM 密文，由图库密码派生的密钥加密；接口返回的永远是解密后的明文（见 1.8 与 `1-architecture.md` 的「静态加密」）。
 
 ### 1.5 头像 `/api/avatars`
@@ -85,13 +87,13 @@
 | 方法 | 路径 | 权限 | 成功响应 |
 |---|---|---|---|
 | GET | `/api/avatars/pending` | MODERATOR+ | `Paginated<PendingAvatar>` |
-| POST | `/api/avatars/{userId}` | 本人或管理员+ | `{ message, submission: { id, status, createdAt } }` |
+| POST | `/api/avatars/{userId}` | 本人或管理员+ | `{ message, submission: { id, status, createdAt, imageUrl } }` |
 | POST | `/api/avatars/{userId}/review` | MODERATOR+ | `{ message, status, avatar }` |
 | GET | `/api/avatars/{userId}/image` | 公开 | 二进制 |
-| GET | `/api/avatars/{userId}/pending/image` | MODERATOR+ | 二进制 |
+| GET | `/api/avatars/{userId}/pending/image` | 本人 或 MODERATOR+ | 二进制 |
 | DELETE | `/api/avatars/{userId}` | 本人或管理员+ | `{ message }` |
 
-`PendingAvatar`：`{ submissionId, userId, username, status, imageUrl, createdAt }`，其中 `imageUrl` 固定为 `/api/avatars/{userId}/pending/image`。
+`PendingAvatar`：`{ submissionId, userId, username, status, imageUrl, createdAt }`，其中 `imageUrl` 固定为 `/api/avatars/{userId}/pending/image`（本人与审核员都能取；提交接口的 `submission.imageUrl` 是同一路径，方便提交后立刻预览）。
 
 审核响应统一为：
 
@@ -222,7 +224,7 @@
 | Schema | 字段 |
 |---|---|
 | `UserResponseDto` | `id`、`username`、`email`、`role`、`bio`、`emailVerified`、`avatar`（`UserAvatarDto \| null`）、`createdAt`、`updatedAt`、`deletedAt` |
-| `UserListItemDto` | `id`、`username`、`email`、`role`、`bio`、`emailVerified`、`avatar`、`createdAt`（**无** `updatedAt` / `deletedAt`） |
+| `UserListItemDto` | `id`、`username`、`email`、`role`、`bio`、`emailVerified`、`avatar`、`avatarUrl`、`createdAt`（**无** `updatedAt` / `deletedAt`） |
 | `UserAvatarDto` | `id`、`path`、`userId`、`createdAt` |
 
 ### 3.2 图片

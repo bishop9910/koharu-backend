@@ -289,7 +289,7 @@ auth:
 >
 > 游客可见范围：已过审图片的详情、缩略图、签名链接与原始文件均无需登录；未过审（含图集里因改稿退回待审核的图片）只对审核员及以上与上传者本人可见。所有响应里的 `thumbnailUrl` 都带 `/api` 前缀，可直接作为 `<img src>` 使用。
 >
-> 凭证携带：图片接口既认 `Authorization: Bearer`，也认登录时下发的 `koharu_token` Cookie（`HttpOnly` + `SameSite=Lax`）。`<img src>`、`<a download>` 无法携带自定义请求头，必须靠 Cookie 才能访问「本人可见但未过审」的图片——否则会出现「自己看自己的投稿 403」。
+> 凭证携带：图片/头像接口既认 `Authorization: Bearer`，也认登录时下发的 `koharu_token` Cookie（`HttpOnly` + `SameSite=Lax`）。`<img src>`、`<a download>` 无法携带自定义请求头，必须靠 Cookie 才能访问「本人可见但未过审」的图片——否则会出现「自己看自己的投稿 403」。前后端分离、Cookie 被 `SameSite` 挡住时，可在这类 GET 图片地址上加 `?access_token=<token>`（仅建议用于图片流，Token 会落在访问日志里）。若请求带了凭证但已失效，接口返回 `401`（而不是降级成游客再报 `403`）。
 
 ### library（图库密钥）
 
@@ -329,7 +329,7 @@ auth:
 | POST | `/avatars/:userId` | 提交头像（进待审核） | 本人 |
 | POST | `/avatars/:userId/review` | 审核头像（仅待审核投稿；响应 `{ message, status, avatar }`，拒绝时 `avatar` 为 `null`） | MODERATOR+ |
 | GET | `/avatars/pending` | **待审核头像队列**（含 `userId` 与用户名，按提交时间正序） | MODERATOR+ |
-| GET | `/avatars/:userId/pending/image` | 待审核头像图片流（审核前预览） | MODERATOR+ |
+| GET | `/avatars/:userId/pending/image` | 待审核头像图片流（审核前预览） | 本人或 MODERATOR+ |
 | GET | `/avatars/:userId/image` | 当前头像图片流 | 公开（仅已过审） |
 | DELETE | `/avatars/:userId` | 删除头像 | 本人/上级 |
 

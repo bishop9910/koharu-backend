@@ -44,10 +44,13 @@ async function bootstrap() {
     .setTitle('Koharu API')
     .setDescription(
       'Koharu 后端服务 API 文档\n\n' +
-        '全局约定：所有接口统一前缀 `/api`；路径参数 `:id` / `:userId` 必须为 UUID，格式非法时直接返回 400，不会进入业务逻辑。',
+        '全局约定：所有接口统一前缀 `/api`；路径参数 `:id` / `:userId` 必须为 UUID，格式非法时直接返回 400，不会进入业务逻辑。\n\n' +
+        '鉴权凭证支持三种携带方式，任选其一：`Authorization: Bearer <token>`、`koharu_token` Cookie（登录/刷新时下发，供 `<img>` / `<a download>` 等原生请求使用）、`?access_token=<token>` 查询参数（跨域导致 Cookie 不可用时）。带了凭证但已失效返回 401；完全不携带凭证时按游客处理（仅公开资源可用）。',
     )
     .setVersion(version)
     .addBearerAuth() // 添加 JWT 认证支持
+    // 浏览器原生请求（<img src>、<a download>）带不了自定义头，登录/刷新时还会下发同名 HttpOnly Cookie
+    .addCookieAuth('koharu_token', { type: 'apiKey', in: 'cookie' }, 'koharu_token')
     .addTag('auth', '认证模块')
     .addTag('users', '用户模块')
     .addTag('images', '图库模块')

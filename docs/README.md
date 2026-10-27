@@ -117,4 +117,10 @@ node -e "const y=require('js-yaml'),f=require('fs');f.writeFileSync('docs/openap
 
 `docs/openapi.json` 导出时带 UTF-8 BOM，解析前记得去掉（上面的命令已经处理）。
 
+导出的规格目前是 **35 个 path / 46 个 operation / 28 个 schema**，`components.securitySchemes` 含 `bearer` 与 `koharu_token` 两套（Cookie 鉴权），图片流接口另外声明了可选的 `?access_token=` 参数。手工改完 controller / DTO 后可以这样快速核对规模有没有意外变化：
+
+```bash
+node -e "const s=require('./docs/openapi.json');const ops=Object.values(s.paths).reduce((n,p)=>n+Object.keys(p).filter(k=>['get','post','patch','put','delete'].includes(k)).length,0);console.log(Object.keys(s.paths).length,'paths /',ops,'ops /',Object.keys(s.components.schemas).length,'schemas')"
+```
+
 Swagger 里 `$ref` 指向的 schema 全部来自 `src/**/dto/*.dto.ts` 与 `src/entities/*.entity.ts` 的 `@ApiProperty` 装饰器，所以**改 DTO 就等于改文档**，不要另外手写一份字段说明。

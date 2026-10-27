@@ -36,6 +36,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromExtractors([
         ExtractJwt.fromAuthHeaderAsBearerToken(),
         cookieExtractor,
+        // 兜底：前端开发服务器与后端不同源时，Cookie 受 SameSite 限制不会被带上，
+        // <img src> 只能把 Token 放查询参数里。仅建议用于图片流这类 GET 请求。
+        ExtractJwt.fromUrlQueryParameter('access_token'),
       ]),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('server.token.key', 'default_secret'),

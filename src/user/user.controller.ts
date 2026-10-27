@@ -103,7 +103,7 @@ export class UserController {
   }
 
   @Get(':id/public')
-  @ApiOperation({ summary: '获取用户的公开资料', description: '公开接口，游客可访问，返回用户名、简介、角色和头像路径' })
+  @ApiOperation({ summary: '获取用户的公开资料', description: '公开接口，游客可访问，返回用户名、简介、角色、头像路径与头像图片地址' })
   @ApiOkResponse({
     description: '公开资料',
     schema: {
@@ -114,6 +114,12 @@ export class UserController {
         bio: { type: 'string', nullable: true },
         role: { type: 'string', enum: Object.values(Role) },
         avatar: { type: 'object', nullable: true, properties: { path: { type: 'string' } } },
+        avatarUrl: {
+          type: 'string',
+          nullable: true,
+          example: '/api/avatars/550e8400-e29b-41d4-a716-446655440000/image',
+          description: '头像图片流地址（带 /api 前缀，可直接作为 img src）；无头像时为 null',
+        },
       },
     },
   })

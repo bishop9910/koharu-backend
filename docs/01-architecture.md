@@ -172,15 +172,18 @@ uploads/
 
 上传流程因此变成：`saveFile` 落盘 → `sharp` 读元数据（用内存里的 buffer，不读盘）→ 生成缩略图（写盘前加密）→ `sealFile` 把刚落盘的原图就地替换成密文 → 写入 DB。缩略图自愈时先 `decrypt` 原图再重建。
 
-## 鉴权凭证的三种携带方式
+## 鉴权凭证的四种携带方式
 
 | 方式 | 谁在用 | 说明 |
 |---|---|---|
-| `Authorization: Bearer <accessToken>` | 前端 fetch、curl、Swagger | 主路径 |
+| `authorization: Bearer <accessToken>` | 前端 fetch、curl、Swagger | 主路径 |
 | `koharu_token` Cookie | `<img src>`、`<a download>`、iframe | 登录/刷新时下发，`HttpOnly` + `SameSite=Lax`（HTTPS 下再开 `server.cookie_secure`）。浏览器原生请求带不了自定义头，没有它就拿不到「本人可见但未过审」的图 |
+| `?access_token=<accessToken>` | 前后端分离、Cookie 被 `SameSite` 挡住时的图片流 | 提取器链的最后一级兜底。Token 会出现在访问日志与 Referer 里，只建议用于图片/头像这类 GET 流 |
 | 下载签名 | `GET /images/:id/download` | `signature` + `expires`，与角色鉴权叠加（未过审仍会二次校验） |
 
-`JwtStrategy` 的 `jwtFromRequest` 是「先 Bearer，后 Cookie」的提取器链；Cookie 解析手写在 `src/auth/strategies/jwt.strategy.ts` 里，没有引入 `cookie-parser`。
+`JwtStrategy` 的 `jwtFromRequest` 是「Bearer → Cookie → 查询参数」的提取器链；Cookie 解析手写在 `src/auth/strategies/jwt.strategy.ts` 里，没有引入 `cookie-parser`。
+
+`OptionalJwtAuthGuard` 区分两种情况：**完全没带凭证**才降级为游客（`req.user = null`）；**带了但无效**（过期、伪造、用户已删）直接抛 `401 登录状态已失效，请重新登录`。否则前端只会看到 `403`，误判成权限不足而去猜角色。
 
 ## 审计
 

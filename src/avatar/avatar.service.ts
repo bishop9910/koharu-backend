@@ -6,6 +6,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -15,7 +16,9 @@ import { User } from '../entities/user.entity.js';
 import { FileService } from '../common/file/file.service.js';
 import { mimeFromPath } from '../common/utils/mime.util.js';
 import { AvatarStatus } from '../enums/avatar-status.enum.js';
-import { canManageTarget } from '../common/utils/role.util.js';
+import { canManageTarget, isStaff } from '../common/utils/role.util.js';
+import type { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface.js';
+import { API_PREFIX } from '../common/constants.js';
 
 @Injectable()
 export class AvatarService {
@@ -146,7 +149,7 @@ export class AvatarService {
         userId: submission.userId,
         username: usernames.get(submission.userId) ?? null,
         status: submission.status,
-        imageUrl: `/avatars/${submission.userId}/pending/image`,
+        imageUrl: `/${API_PREFIX}/avatars/${submission.userId}/pending/image`,
         createdAt: submission.createdAt,
       })),
       total,
@@ -156,8 +159,19 @@ export class AvatarService {
     };
   }
 
-  /** 审核员查看待审核头像图片；没有待审投稿时报 404。 */
-  async getPendingImage(userId: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  /**
+   * 查看待审核头像图片：审核员及以上可看任意用户，本人可看自己提交的那张。
+   *
+   * 本人必须能看——否则提交完就只能看旧头像，等于无法预览自己刚传的图。
+   */
+  async getPendingImage(userId: string, currentUser?: AuthenticatedUser): Promise<{ buffer: Buffer; mimeType: string }> {
+    if (!currentUser) {
+      throw new UnauthorizedException('请先登录');
+    }
+    if (currentUser.id !== userId && !isStaff(currentUser.role)) {
+      throw new ForbiddenException('无权查看其他用户的待审核头像');
+    }
+
     const pending = await this.submissionRepository.findOne({
       where: { userId, status: AvatarStatus.PENDING },
     });

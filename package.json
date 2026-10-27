@@ -1,6 +1,6 @@
 {
   "name": "koharu",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "a backend of safe image lib system, powered with nestjs",
   "author": "bishop9910",
   "private": true,

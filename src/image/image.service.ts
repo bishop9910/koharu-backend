@@ -445,9 +445,16 @@ export class ImageService {
     };
   }
 
-  async generateSignedUrl(imageId: string, baseUrl: string): Promise<string> {
-    const exists = await this.imageRepository.findOne({ where: { id: imageId }, select: { id: true } });
-    if (!exists) throw new NotFoundException(`图片 ID ${imageId} 不存在`);
+  async generateSignedUrl(imageId: string, baseUrl: string, currentUser?: any): Promise<string> {
+    const image = await this.imageRepository.findOne({
+      where: { id: imageId },
+      select: { id: true, status: true, userId: true },
+    });
+    if (!image) throw new NotFoundException(`图片 ID ${imageId} 不存在`);
+    // 与下载保持同一判据：拿不到签名，就不应该存在「先给链接、下载时才 403」的落差
+    if (!this.canPreview(image, currentUser)) {
+      throw new ForbiddenException(image.status === ImageStatus.REJECTED ? '该图片已被拒绝，无法下载' : '无权下载未通过审核的图片');
+    }
 
     const now = Date.now();
     const expires = now + this.cacheTimeMs;

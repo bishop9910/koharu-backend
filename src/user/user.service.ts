@@ -20,6 +20,7 @@ import { RsaService } from '../common/security/rsa.service.js';
 import { ImageService } from '../image/image.service.js';
 import { AvatarService } from '../avatar/avatar.service.js';
 import { AlbumService } from '../album/album.service.js';
+import { API_PREFIX } from '../common/constants.js';
 
 @Injectable()
 export class UserService {
@@ -105,6 +106,7 @@ export class UserService {
                 createdAt: user.avatar.createdAt,
               }
             : null,
+          avatarUrl: user.avatar ? `/${API_PREFIX}/avatars/${user.id}/image` : null,
           createdAt: user.createdAt,
         }),
       ),
@@ -265,6 +267,7 @@ export class UserService {
     bio: string | null;
     role: Role;
     avatar: { path: string } | null;
+    avatarUrl: string | null;
   }> {
     const user = await this.userRepository.findOne({
       where: { id },
@@ -286,7 +289,15 @@ export class UserService {
       throw new NotFoundException(`用户 ID ${id} 不存在`);
     }
 
-    return user as any;
+    return {
+      id: user.id,
+      username: user.username,
+      bio: user.bio,
+      role: user.role,
+      avatar: user.avatar ? { path: user.avatar.path } : null,
+      // 公开头像接口，游客可用；前端不必自己拼路径
+      avatarUrl: user.avatar ? `/${API_PREFIX}/avatars/${user.id}/image` : null,
+    };
   }
 
   async changePassword(

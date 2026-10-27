@@ -19,7 +19,7 @@ export class ImageResponseDto {
   @ApiPropertyOptional({ type: String, nullable: true, description: '缩略图相对路径', example: '/image_cache/thumb_xxx.webp' })
   thumbnailPath: string | null;
 
-  @ApiProperty({ description: '缩略图访问地址', example: '/images/550e8400-e29b-41d4-a716-446655440000/thumbnail' })
+  @ApiProperty({ description: '缩略图访问地址（带 /api 前缀，可直接作为 img src）', example: '/api/images/550e8400-e29b-41d4-a716-446655440000/thumbnail' })
   thumbnailUrl: string;
 
   @ApiProperty({ description: 'MIME 类型', example: 'image/jpeg' })

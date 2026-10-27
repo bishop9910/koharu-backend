@@ -12,7 +12,7 @@
               "application/json": {
                 "schema": {
                   "type": "string",
-                  "example": "Welcome to<br/>koharu backend<br/>version: 0.0.2"
+                  "example": "Welcome to<br/>koharu backend<br/>version: 0.1.0"
                 }
               }
             }
@@ -404,7 +404,7 @@
     },
     "/api/users/{id}/public": {
       "get": {
-        "description": "公开接口，游客可访问，返回用户名、简介、角色和头像路径",
+        "description": "公开接口，游客可访问，返回用户名、简介、角色、头像路径与头像图片地址",
         "operationId": "UserController_getPublicProfile",
         "parameters": [
           {
@@ -452,6 +452,12 @@
                           "type": "string"
                         }
                       }
+                    },
+                    "avatarUrl": {
+                      "type": "string",
+                      "nullable": true,
+                      "example": "/api/avatars/550e8400-e29b-41d4-a716-446655440000/image",
+                      "description": "头像图片流地址（带 /api 前缀，可直接作为 img src）；无头像时为 null"
                     }
                   }
                 }
@@ -1130,7 +1136,7 @@
     },
     "/api/images/{id}/thumbnail": {
       "get": {
-        "description": "已过审图片游客可预览；未过审图片仅审核员及以上或上传者本人可查看",
+        "description": "已过审图片游客可预览；未过审图片仅审核员及以上或上传者本人可查看。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token= 三种方式之一携带；带了凭证但无效返回 401，完全不携带才按游客处理",
         "operationId": "ImageController_getThumbnail",
         "parameters": [
           {
@@ -1140,6 +1146,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "access_token",
+            "required": false,
+            "in": "query",
+            "description": "JWT，供无法设置请求头的 <img> 等原生请求使用；与 Authorization / Cookie 等价的第三种携带方式",
+            "schema": {}
           }
         ],
         "responses": {
@@ -1160,6 +1173,9 @@
               }
             }
           },
+          "401": {
+            "description": "携带了凭证但已失效（完全不携带凭证时按游客处理）"
+          },
           "403": {
             "description": "无权查看未通过审核的图片"
           },
@@ -1178,7 +1194,7 @@
     },
     "/api/images/{id}/sign": {
       "get": {
-        "description": "无需登录：已过审图片对所有人开放，游客也能拿到链接；未过审图片即使拿到链接，下载时仍会被拒绝（审核员及以上与上传者本人除外）。downloadUrl 是含协议与主机名的绝对地址，有效期等于 expiresInMs",
+        "description": "无需登录：已过审图片对所有人开放，游客也能拿到链接；未过审图片仅审核员及以上与上传者本人可生成。downloadUrl 是含协议与主机名的绝对地址，有效期等于 expiresInMs",
         "operationId": "ImageController_generateSignedUrl",
         "parameters": [
           {
@@ -1188,6 +1204,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "access_token",
+            "required": false,
+            "in": "query",
+            "description": "JWT，供无法设置请求头的原生请求使用",
+            "schema": {}
           }
         ],
         "responses": {
@@ -1211,6 +1234,12 @@
               }
             }
           },
+          "401": {
+            "description": "携带了凭证但已失效（完全不携带凭证时按游客处理）"
+          },
+          "403": {
+            "description": "无权为该图片生成下载链接（未过审且非本人/审核员）"
+          },
           "404": {
             "description": "图片不存在"
           }
@@ -1223,7 +1252,7 @@
     },
     "/api/images/{id}/download": {
       "get": {
-        "description": "已过审图片游客持签名链接即可下载；未过审图片仅审核员及以上或上传者本人可下载，其余返回 403",
+        "description": "已过审图片游客持签名链接即可下载；未过审图片仅审核员及以上或上传者本人可下载，其余返回 403。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token=",
         "operationId": "ImageController_downloadOriginal",
         "parameters": [
           {
@@ -1250,9 +1279,16 @@
             "in": "query",
             "description": "过期时间戳 (毫秒)",
             "schema": {
-              "example": 1793187079622,
+              "example": 1793190457184,
               "type": "string"
             }
+          },
+          {
+            "name": "access_token",
+            "required": false,
+            "in": "query",
+            "description": "JWT，供 <a download> 等无法设置请求头的原生导航使用",
+            "schema": {}
           }
         ],
         "responses": {
@@ -1287,6 +1323,9 @@
           },
           "400": {
             "description": "签名无效或已过期"
+          },
+          "401": {
+            "description": "携带了凭证但已失效（完全不携带凭证时按游客处理）"
           },
           "403": {
             "description": "图片已被拒绝或无权下载未过审图片"
@@ -1663,6 +1702,10 @@
                         "createdAt": {
                           "type": "string",
                           "format": "date-time"
+                        },
+                        "imageUrl": {
+                          "type": "string",
+                          "example": "/api/avatars/550e8400-e29b-41d4-a716-446655440000/pending/image"
                         }
                       }
                     }
@@ -1899,7 +1942,7 @@
                           },
                           "imageUrl": {
                             "type": "string",
-                            "example": "/avatars/550e8400-e29b-41d4-a716-446655440000/pending/image"
+                            "example": "/api/avatars/550e8400-e29b-41d4-a716-446655440000/pending/image"
                           },
                           "createdAt": {
                             "type": "string",
@@ -1946,7 +1989,7 @@
     },
     "/api/avatars/{userId}/pending/image": {
       "get": {
-        "description": "审核前预览投稿图片；该用户没有待审核头像时返回 404",
+        "description": "本人可看自己待审核的头像（提交后即刻预览），审核员及以上可看任意用户的；其余 403。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token=",
         "operationId": "AvatarController_getPendingImage",
         "parameters": [
           {
@@ -1956,6 +1999,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "access_token",
+            "required": false,
+            "in": "query",
+            "description": "JWT，供无法设置请求头的 <img> 等原生请求使用",
+            "schema": {}
           }
         ],
         "responses": {
@@ -1988,16 +2038,25 @@
               }
             }
           },
+          "401": {
+            "description": "未携带任何凭证，或携带的凭证已失效"
+          },
+          "403": {
+            "description": "无权查看其他用户的待审核头像"
+          },
           "404": {
             "description": "该用户没有待审核的头像"
           }
         },
         "security": [
           {
+            "koharu_token": []
+          },
+          {
             "bearer": []
           }
         ],
-        "summary": "获取待审核头像图片流 (审核员及以上)",
+        "summary": "获取待审核头像图片流",
         "tags": [
           "avatars"
         ]
@@ -2825,8 +2884,8 @@
   },
   "info": {
     "title": "Koharu API",
-    "description": "Koharu 后端服务 API 文档\n\n全局约定：所有接口统一前缀 `/api`；路径参数 `:id` / `:userId` 必须为 UUID，格式非法时直接返回 400，不会进入业务逻辑。",
-    "version": "0.0.2",
+    "description": "Koharu 后端服务 API 文档\n\n全局约定：所有接口统一前缀 `/api`；路径参数 `:id` / `:userId` 必须为 UUID，格式非法时直接返回 400，不会进入业务逻辑。\n\n鉴权凭证支持三种携带方式，任选其一：`Authorization: Bearer <token>`、`koharu_token` Cookie（登录/刷新时下发，供 `<img>` / `<a download>` 等原生请求使用）、`?access_token=<token>` 查询参数（跨域导致 Cookie 不可用时）。带了凭证但已失效返回 401；完全不携带凭证时按游客处理（仅公开资源可用）。",
+    "version": "0.1.0",
     "contact": {}
   },
   "tags": [
@@ -2866,6 +2925,11 @@
         "scheme": "bearer",
         "bearerFormat": "JWT",
         "type": "http"
+      },
+      "koharu_token": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "koharu_token"
       }
     },
     "schemas": {
@@ -2974,6 +3038,12 @@
               }
             ]
           },
+          "avatarUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "当前头像的图片流地址（带 /api 前缀，可直接作为 img src）；无头像时为 null",
+            "example": "/api/avatars/550e8400-e29b-41d4-a716-446655440000/image"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -2987,6 +3057,7 @@
           "bio",
           "emailVerified",
           "avatar",
+          "avatarUrl",
           "createdAt"
         ]
       },
@@ -3433,8 +3504,8 @@
           },
           "thumbnailUrl": {
             "type": "string",
-            "description": "缩略图访问地址",
-            "example": "/images/550e8400-e29b-41d4-a716-446655440000/thumbnail"
+            "description": "缩略图访问地址（带 /api 前缀，可直接作为 img src）",
+            "example": "/api/images/550e8400-e29b-41d4-a716-446655440000/thumbnail"
           },
           "mimeType": {
             "type": "string",

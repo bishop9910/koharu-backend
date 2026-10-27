@@ -27,13 +27,18 @@ import {
   ApiForbiddenResponse,
   ApiConsumes,
   ApiBody,
+  ApiQuery,
+  ApiCookieAuth,
+  ApiSecurity,
 } from '@nestjs/swagger';
 import { AvatarService } from './avatar.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard.js';
 import { MinRoleGuard, MinRole } from '../common/guards/role.guard.js';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { Role } from '../enums/role.enum.js';
 import { ReviewAvatarDto } from './dto/review-avatar.dto.js';
+import { API_PREFIX } from '../common/constants.js';
 
 @ApiTags('avatars')
 @Controller('avatars')
@@ -59,6 +64,7 @@ export class AvatarController {
             id: { type: 'string', format: 'uuid' },
             status: { type: 'string', enum: ['pending', 'approved', 'rejected'], example: 'pending' },
             createdAt: { type: 'string', format: 'date-time' },
+            imageUrl: { type: 'string', example: '/api/avatars/550e8400-e29b-41d4-a716-446655440000/pending/image' },
           },
         },
       },
@@ -84,6 +90,8 @@ export class AvatarController {
         id: submission.id,
         status: submission.status,
         createdAt: submission.createdAt,
+        // 本人凭登录态（Cookie 或 Bearer）即可预览，无需等待审核
+        imageUrl: `/${API_PREFIX}/avatars/${userId}/pending/image`,
       },
     };
   }
@@ -148,7 +156,7 @@ export class AvatarController {
               status: { type: 'string', enum: ['pending', 'approved', 'rejected'], example: 'pending' },
               imageUrl: {
                 type: 'string',
-                example: '/avatars/550e8400-e29b-41d4-a716-446655440000/pending/image',
+                example: '/api/avatars/550e8400-e29b-41d4-a716-446655440000/pending/image',
               },
               createdAt: { type: 'string', format: 'date-time' },
             },
@@ -167,12 +175,13 @@ export class AvatarController {
   }
 
   @Get(':userId/pending/image')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, MinRoleGuard)
-  @MinRole(Role.MODERATOR)
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiSecurity('bearer')
+  @ApiCookieAuth('koharu_token')
+  @ApiQuery({ name: 'access_token', required: false, description: 'JWT，供无法设置请求头的 <img> 等原生请求使用' })
   @ApiOperation({
-    summary: '获取待审核头像图片流 (审核员及以上)',
-    description: '审核前预览投稿图片；该用户没有待审核头像时返回 404',
+    summary: '获取待审核头像图片流',
+    description: '本人可看自己待审核的头像（提交后即刻预览），审核员及以上可看任意用户的；其余 403。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token=',
   })
   @ApiResponse({
     status: 200,
@@ -184,10 +193,13 @@ export class AvatarController {
       'image/gif': { schema: { type: 'string', format: 'binary' } },
     },
   })
+  @ApiResponse({ status: 403, description: '无权查看其他用户的待审核头像' })
+  @ApiResponse({ status: 401, description: '未携带任何凭证，或携带的凭证已失效' })
   @ApiResponse({ status: 404, description: '该用户没有待审核的头像' })
-  async getPendingImage(@Param('userId', ParseUUIDPipe) userId: string, @Res() res: Response) {
-    const { buffer, mimeType } = await this.avatarService.getPendingImage(userId);
-    res.set({ 'Content-Type': mimeType, 'Cache-Control': 'no-store' });
+  async getPendingImage(@Param('userId', ParseUUIDPipe) userId: string, @Req() req: any, @Res() res: Response) {
+    const { buffer, mimeType } = await this.avatarService.getPendingImage(userId, req.user);
+    // private：待审头像只对本人与审核员开放，不能被共享缓存留存
+    res.set({ 'Content-Type': mimeType, 'Cache-Control': 'private, no-store', Vary: 'Authorization, Cookie' });
     res.send(buffer);
   }
 

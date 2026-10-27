@@ -26,6 +26,14 @@ export class UserListItemDto {
   @ApiProperty({ type: UserAvatarDto, nullable: true })
   avatar: UserAvatarDto | null;
 
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: '当前头像的图片流地址（带 /api 前缀，可直接作为 img src）；无头像时为 null',
+    example: '/api/avatars/550e8400-e29b-41d4-a716-446655440000/image',
+  })
+  avatarUrl: string | null;
+
   @ApiProperty()
   createdAt: Date;
 }
