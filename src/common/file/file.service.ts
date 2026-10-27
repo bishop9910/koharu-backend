@@ -107,6 +107,28 @@ export class FileService {
     return absolutePath;
   }
 
+  /**
+   * 原子写入：先写同目录临时文件再 rename。
+   *
+   * 改图库密码时会在服务运行中逐个重加密文件，下载与缩略图接口可能同时读同一个文件；
+   * 直接 writeFile 会留下「读到半个文件」的窗口，rename 在同一文件系统上是原子的，
+   * 读方要么看到旧内容，要么看到新内容。
+   */
+  async writeFileAtomically(relativePath: string, buffer: Buffer): Promise<string> {
+    const absolutePath = this.resolveSafePath(relativePath);
+    const tmpPath = `${absolutePath}.${randomUUID()}.tmp`;
+    try {
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(tmpPath, buffer);
+      await fs.rename(tmpPath, absolutePath);
+    } catch (error: any) {
+      await fs.unlink(tmpPath).catch(() => {});
+      this.logger.error(`文件原子写入失败: ${absolutePath}`, error.stack);
+      throw new BadRequestException('文件保存失败，请检查服务器磁盘权限');
+    }
+    return absolutePath;
+  }
+
   async deleteFile(relativePath: string): Promise<boolean> {
     if (!relativePath) return false;
     const absolutePath = this.resolveSafePath(relativePath);

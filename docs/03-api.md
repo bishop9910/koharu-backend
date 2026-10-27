@@ -1,6 +1,6 @@
 # 03 · 接口参考
 
-本文按模块列出全部 **43 个操作**。机器可读版本见 [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml)（由运行中的服务导出，与本表同源）。
+本文按模块列出全部 **46 个操作**。机器可读版本见 [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml)（由运行中的服务导出，与本表同源）。
 
 - 接口前缀、UUID 要求、分页、错误体等全局约定见 [README.md](README.md#全局约定)。
 - 权限层级与矩阵见 [02-auth-and-permissions.md](02-auth-and-permissions.md)。
@@ -76,6 +76,9 @@
 - `GET /api/images/{id}/download` 不认角色，只认 `signature` + `expires`；已过审图片的签名谁都能用，未过审的签名在下载时仍会按角色二次校验。
 - `GET /api/images/{id}/sign` 对不存在的 id 返回 `404`（不会签出无效链接）。
 - 响应里所有 `thumbnailUrl` 都是 `/api/images/{id}/thumbnail`，带全局前缀，可直接作为 `<img src>`。
+- `ImageResponseDto` 含 `md5`（原图内容的 MD5，hex），`GET /api/images/{id}/download` 同时在响应头给出 `X-Content-MD5`，前端可以下载后自行比对做完整性校验。
+- 图片接口既认 `Authorization: Bearer <token>`，也认登录/刷新时下发的 `koharu_token` Cookie（`HttpOnly`、`SameSite=Lax`）。`<img>`、`<a download>` 这类浏览器原生的请求带不了自定义头，靠 Cookie 才能拿到「本人可见但未过审」的缩略图与原图。
+- 原图与缩略图在磁盘上是 AES-256-GCM 密文，由图库密码派生的密钥加密；接口返回的永远是解密后的明文（见 1.8 与 `1-architecture.md` 的「静态加密」）。
 
 ### 1.5 头像 `/api/avatars`
 
@@ -126,6 +129,21 @@
 | GET | `/api/audit-logs` | ADMIN+ | `Paginated<AuditLog>` |
 
 支持 `actorId`、`action`、`from`、`to` 过滤，按 `createdAt` 倒序。GET/HEAD/OPTIONS 请求不记录。
+
+### 1.8 图库密钥 `/api/library`
+
+| 方法 | 路径 | 权限 | 成功响应 |
+|---|---|---|---|
+| GET | `/api/library/status` | 公开 | `LibraryStatus` |
+| POST | `/api/library/password` | ADMIN+ | `LibraryStatus`（含 `message`） |
+| POST | `/api/library/unlock` | ADMIN+ | `LibraryStatus` |
+
+`LibraryStatus`：`{ bootstrapped, unlocked, activeVersion, rotation: { status, total, done, error } }`。
+
+- `unlocked=false` 时，缩略图、原图下载、图片上传都会返回 `503`，提示管理员先解锁。
+- `POST /api/library/password` 的 body 是 `{ oldPassword, newPassword }`（新密码 8–128 字符）。成功后 `activeVersion` 加一，后台逐个把原图重新加密，期间服务照常读写。
+- `POST /api/library/unlock` 的 body 是 `{ password }`。进程重启后若 `adminInfo/info.json` 里没有可用密码（例如被清掉或换了机器），用它手工解锁。
+- 图库密码只有 `ADMIN` 及以上能改；密码本体只存在于 `adminInfo/info.json`（权限 `0600`），数据库里只有它的 bcrypt 哈希和「被密码包裹的数据密钥」。
 
 ---
 
@@ -211,14 +229,15 @@
 
 | Schema | 字段 |
 |---|---|
-| `ImageResponseDto` | `id`、`filename`、`thumbnailPath`、`thumbnailUrl`、`mimeType`、`size`、`width`、`height`、`userId`、`status`、`rejectReason`、`editCount`、`createdAt`、`updatedAt` |
+| `ImageResponseDto` | `id`、`filename`、`thumbnailPath`、`thumbnailUrl`、`mimeType`、`size`、`width`、`height`、`userId`、`status`、`rejectReason`、`editCount`、`md5`、`createdAt`、`updatedAt` |
 | `ImageListItemDto` | `id`、`filename`、`thumbnailPath`、`thumbnailUrl`、`mimeType`、`size`、`width`、`height`、`userId`、`status`、`createdAt` |
 | `MyImageListItemDto` | `ImageListItemDto` + `rejectReason`、`archived` |
 | `PendingImageDto` | `ImageListItemDto` + `username` |
 
 「我上传的」额外给出 `archived`（是否已被归档进图集）与 `rejectReason`；待审队列额外给出 `username`（上传者），方便审核员判断来源。
 
-> 详情与列表**都不返回** `path`、`md5`、`uploaderIp`、`reviewedBy`。这些是内部字段，详情接口游客也能访问。
+> 详情与列表**不返回** `path`、`uploaderIp`、`reviewedBy`。`md5` 只在详情（`ImageResponseDto`）里给出，用于下载后做完整性校验；`GET /api/images/{id}/download` 另有同值的 `X-Content-MD5` 响应头。
+
 
 ### 3.3 图集
 

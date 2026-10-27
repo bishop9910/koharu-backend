@@ -123,6 +123,24 @@ audit_logs 独立表，无外键（保存操作者快照，避免用户改名/�
 | `success` | boolean | 默认 `true` | `statusCode < 400` |
 | `createdAt` | timestamp | INDEX | |
 
+### 2.9 `library_secrets`
+
+全库**只有一行**，存图库密码派生的密钥材料。密码本身不落库。
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | uuid PK | |
+| `salt` | varchar(64) | scrypt 的盐（base64），每次改密码重新生成 |
+| `passwordHash` | varchar(255) | bcrypt(图库密码)，只用于校验「旧密码对不对」 |
+| `activeVersion` | int，默认 1 | 当前数据密钥版本，每次改密码 +1 |
+| `keys` | jsonb | `[{ version, wrappedKey }]`：数据密钥被「密码派生的 KEK」用 AES-256-GCM 包裹后的 base64 |
+| `rotationStatus` | varchar(16) | `idle` / `running` / `failed` |
+| `rotationTotal` / `rotationDone` | int | 后台重加密的进度 |
+| `rotationError` | varchar(500) 可空 | 失败原因 |
+| `createdAt` / `updatedAt` | timestamp | |
+
+这两个列必须显式写 `type`（`varchar`）：TS 的联合类型（`string | null`、字符串字面量联合）在 `emitDecoratorMetadata` 里退化成 `Object`，TypeORM 无法推断列类型。
+
 ## 3. 枚举
 
 | 枚举 | 值 | 使用位置 |

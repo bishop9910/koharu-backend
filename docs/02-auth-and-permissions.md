@@ -113,6 +113,16 @@
 |---|---|
 | `GET /api/audit-logs` | ADMIN+ |
 
+### 图库密码
+
+| 接口 | 权限 |
+|---|---|
+| `GET /api/library/status` | 公开（只暴露 `bootstrapped` / `unlocked` / 版本与轮转进度，不含密码材料） |
+| `POST /api/library/password` | **ADMIN+**（改密码会重加密全库图片） |
+| `POST /api/library/unlock` | **ADMIN+** |
+
+`MODERATOR` 能审核图片，但**不能**碰图库密码：它是整个图库的加密根，泄露等于泄露全部原图。
+
 ## 登录与令牌
 
 ### 注册

@@ -29,6 +29,7 @@
 | `token.key` | `default_secret` | JWT / 下载签名共用的 HMAC 密钥，**生产必须换成随机值** |
 | `token.timeout` | `86400000` | access token 有效期（毫秒，1 天） |
 | `token.refresh_timeout` | `691200000` | refresh token 有效期（毫秒，8 天） |
+| `cookie_secure` | `false` | 登录/刷新时下发的 `koharu_token` Cookie 是否带 `Secure`。反向代理后启用 HTTPS 时应设为 `true` |
 
 > `token.key` 同时用于 `createSignature(imageId:expires)`，换密钥会让已发出的下载链接立即失效。
 
@@ -86,17 +87,19 @@
 │   ├── config.yaml
 │   ├── rsa_private.pem     # 首次启动自动生成，权限 0600
 │   └── rsa_public.pem      # 首次启动自动生成
-├── adminInfo/info.json     # 首次 seed 写入的初始管理员账号 + 密码
+├── adminInfo/info.json     # 首次 seed 写入的初始管理员账号 + 密码；图库密码也在这里（library.password）
 ├── uploads/
-│   ├── images/             # 原图
-│   ├── avatars/            # 当前头像与待审头像（同目录）
-│   └── image_cache/        # 缩略图缓存
+│   ├── images/             # 原图（AES-256-GCM 密文）
+│   ├── avatars/            # 当前头像与待审头像（同目录，明文）
+│   └── image_cache/        # 缩略图缓存（密文，删掉会自动重建）
 └── logs/
     ├── combined/combined-YYYY-MM-DD.log
     └── error/error-YYYY-MM-DD.log
 ```
 
 `rsa_*.pem` 一旦生成就不会覆盖；删掉会导致此前加密的密码请求失效（前端需要重新取公钥）。
+
+`adminInfo/` 必须可写：图库密码初始化与每次改密码都会回写 `library` 键。写不进去时服务不会崩，但会把本次密码打进 `error` 日志——**这是唯一一次能在日志里看到明文密码的机会**，请立刻记录，否则重启后要重置。
 
 ## 4. 构建与启动
 
@@ -163,7 +166,29 @@ location /api/ {
 }
 ```
 
-## 6. 上线检查清单
+## 6. 图库密码运维
+
+图库密码不是用户密码，它是**图片静态加密**的根：所有原图与缩略图在磁盘上都是 AES-256-GCM 密文，密钥由这个密码派生。
+
+| 场景 | 操作 |
+|---|---|
+| 首次启动 | 自动生成 20 字符随机密码，写进 `adminInfo/info.json` 的 `library.password`，同时把数据密钥包裹后存 `library_secrets` 表 |
+| 重启 | 从 `adminInfo/info.json` 读回密码自动解锁；文件缺失或哈希对不上则进入锁定态（`GET /api/library/status` 的 `unlocked=false`），缩略图/下载/上传返回 `503` |
+| 锁定后自救 | `POST /api/library/unlock`，body `{ "password": "…" }`，需要 ADMIN+ |
+| 改密码 | `POST /api/library/password`，body `{ "oldPassword": "…", "newPassword": "…" }`，需要 ADMIN+ |
+| 忘记密码 | 没有后门。只能用旧密码解锁后改，或删掉 `library_secrets` 全部行 + `adminInfo` 里的 `library` 键让服务重新初始化——后者会让**已加密的旧图片永远解不开**，只能连 `uploads/images` 一起清掉 |
+
+改密码的执行顺序（`LibraryService.changePassword`）：
+
+1. 校验旧密码（bcrypt）→ 立即生成新盐、新 KEK、新数据密钥，`activeVersion` 加一；
+2. 新旧密钥同时留在内存里，**服务不停**；
+3. 后台分批（每批 100 条）把原图从旧版本解密再用新版本加密，缩略图直接删除待重建；
+4. 全部成功后只保留新版本密钥、`rotationStatus` 回到 `idle`；有失败则停在 `failed` 并保留旧密钥，状态里能看到 `rotation.error`；
+5. 进度看 `GET /api/library/status` 的 `rotation.total / rotation.done`。
+
+所以**不需要停服**：轮转期间新旧版本的文件都能读。
+
+## 7. 上线检查清单
 
 | 项 | 要求 |
 |---|---|
@@ -173,4 +198,6 @@ location /api/ {
 | `adminInfo/info.json` | 首次登录后改密码，然后删除该文件 |
 | `upload.dir` / `logs` | 所在磁盘留足空间；`logs` 需可写 |
 | 反向代理 | 按 §5 处理真实 IP |
+| `adminInfo/` | 必须可写（图库密码回写），权限 `0600` |
+| `library_secrets` | 与 `uploads/` 同等重要：两者一起备份，缺一不可解密 |
 | 备份 | `pg_dump` + `uploads/` 目录，两者要一起备份（库里的 `path` 指向文件） |

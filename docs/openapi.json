@@ -1250,14 +1250,14 @@
             "in": "query",
             "description": "过期时间戳 (毫秒)",
             "schema": {
-              "example": 1793098095237,
+              "example": 1793187079622,
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "返回原图二进制流，Content-Type 为原图实际的 MIME，并带 Content-Disposition: attachment",
+            "description": "返回原图二进制流，Content-Type 为原图实际的 MIME，带 Content-Disposition: attachment 与 X-Content-MD5（供前端校验完整性）",
             "content": {
               "image/jpeg": {
                 "schema": {
@@ -1306,7 +1306,7 @@
     },
     "/api/images/{id}": {
       "get": {
-        "description": "已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / md5 / uploaderIp / reviewedBy",
+        "description": "已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / uploaderIp / reviewedBy；md5 保留，供前端校验下载到的原图是否完整",
         "operationId": "ImageController_findOne",
         "parameters": [
           {
@@ -1385,6 +1385,220 @@
         "summary": "删除图片 (本人或上级角色)",
         "tags": [
           "images"
+        ]
+      }
+    },
+    "/api/library/status": {
+      "get": {
+        "description": "公开接口。返回图库密码是否已初始化、服务端当前是否已解锁，以及改密码后的后台重加密进度。前端可在改密码后轮询它来显示「正在重加密 x/y」。",
+        "operationId": "LibraryController_getStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "图库状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bootstrapped": {
+                      "type": "boolean",
+                      "description": "是否已经初始化图库密码"
+                    },
+                    "unlocked": {
+                      "type": "boolean",
+                      "description": "服务端当前是否持有可用数据密钥"
+                    },
+                    "activeVersion": {
+                      "type": "number",
+                      "description": "当前活跃的数据密钥版本"
+                    },
+                    "rotation": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "idle",
+                            "running",
+                            "failed"
+                          ],
+                          "description": "密钥轮转状态"
+                        },
+                        "total": {
+                          "type": "number",
+                          "description": "需要重加密的文件总数"
+                        },
+                        "done": {
+                          "type": "number",
+                          "description": "已重加密的文件数"
+                        },
+                        "error": {
+                          "type": "string",
+                          "nullable": true,
+                          "description": "失败原因"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "图库加密状态",
+        "tags": [
+          "library"
+        ]
+      }
+    },
+    "/api/library/password": {
+      "post": {
+        "description": "只有 admin / super_admin 能改。修改成功后立即生成新一代数据密钥并在后台把全部图片重加密成新密钥；重加密期间服务保持可用，进度见 GET /library/status。旧密码立即失效，新密码同时写入 adminInfo/info.json。",
+        "operationId": "LibraryController_changePassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeLibraryPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "密码已更新，重加密已在后台开始",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "图库密码已更新，图片正在后台重加密（期间服务可用）"
+                    },
+                    "activeVersion": {
+                      "type": "number",
+                      "example": 2
+                    },
+                    "rotationTotal": {
+                      "type": "number",
+                      "description": "需要重加密的图片数量",
+                      "example": 128
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "原图库密码不正确，或新密码与原密码相同 / 长度不足 8 位"
+          },
+          "401": {
+            "description": "未登录或 Access Token 无效"
+          },
+          "403": {
+            "description": "权限不足：需要 ADMIN 及以上角色"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改图库密码 (管理员及以上)",
+        "tags": [
+          "library"
+        ]
+      }
+    },
+    "/api/library/unlock": {
+      "post": {
+        "description": "正常情况下服务启动时会用 adminInfo/info.json 里的图库密码自动解锁；只有密码文件缺失或被删时才需要手动解锁。锁定期间任何图片的读取、缩略图生成与上传都会返回 503。",
+        "operationId": "LibraryController_unlock",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnlockLibraryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "解锁成功，返回最新状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bootstrapped": {
+                      "type": "boolean",
+                      "description": "是否已经初始化图库密码"
+                    },
+                    "unlocked": {
+                      "type": "boolean",
+                      "description": "服务端当前是否持有可用数据密钥"
+                    },
+                    "activeVersion": {
+                      "type": "number",
+                      "description": "当前活跃的数据密钥版本"
+                    },
+                    "rotation": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "idle",
+                            "running",
+                            "failed"
+                          ],
+                          "description": "密钥轮转状态"
+                        },
+                        "total": {
+                          "type": "number",
+                          "description": "需要重加密的文件总数"
+                        },
+                        "done": {
+                          "type": "number",
+                          "description": "已重加密的文件数"
+                        },
+                        "error": {
+                          "type": "string",
+                          "nullable": true,
+                          "description": "失败原因"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "图库密码错误"
+          },
+          "401": {
+            "description": "未登录或 Access Token 无效"
+          },
+          "403": {
+            "description": "权限不足：需要 ADMIN 及以上角色"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "手动解锁图库 (管理员及以上)",
+        "tags": [
+          "library"
         ]
       }
     },
@@ -3232,6 +3446,11 @@
             "description": "文件大小 (字节)",
             "example": 2048576
           },
+          "md5": {
+            "type": "string",
+            "description": "原图 MD5 (hex)。下载原图后可用它对文件做完整性校验，也用于识别「同一张图被重复上传」",
+            "example": "9e107d9d372bb6826bd81d3542a419d6"
+          },
           "width": {
             "type": "number",
             "nullable": true,
@@ -3286,10 +3505,44 @@
           "thumbnailUrl",
           "mimeType",
           "size",
+          "md5",
           "status",
           "editCount",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "ChangeLibraryPasswordDto": {
+        "type": "object",
+        "properties": {
+          "oldPassword": {
+            "type": "string",
+            "description": "当前图库密码",
+            "example": "Vt3nQ8xLk2pRw9a"
+          },
+          "newPassword": {
+            "type": "string",
+            "description": "新图库密码（至少 8 位）",
+            "example": "Xr7mB2qLs9tYc4d",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "oldPassword",
+          "newPassword"
+        ]
+      },
+      "UnlockLibraryDto": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "description": "图库密码",
+            "example": "Vt3nQ8xLk2pRw9a"
+          }
+        },
+        "required": [
+          "password"
         ]
       },
       "ReviewAvatarDto": {

@@ -42,11 +42,12 @@
 
 ## 核心特性 (Features)
 
-- **安全认证与授权**：JWT 双 Token（Access + Refresh），配合**五级 RBAC** 与等级守卫（`MinRoleGuard`）。
+- **安全认证与授权**：JWT 双 Token（Access + Refresh），配合**五级 RBAC** 与等级守卫（`MinRoleGuard`）；登录同时下发 `HttpOnly` Cookie，供 `<img>`/`<a download>` 这类带不了请求头的场景使用。
 - **图片投稿与审核**：
   - 原图与缩略图分离存储（都在上传根目录下：`uploads/images` & `uploads/image_cache`），基于 `sharp` 自动裁剪压缩。
+  - **静态加密**：原图与缩略图在磁盘上是 AES-256-GCM 密文，由图库密码派生的密钥保护；改密码时后台重加密、服务不停（`/api/library/*`）。
   - 审核流水线：`pending → approved / rejected`；被拒或已过审图片可**重新投稿一次**，重置为待审核。
-  - HMAC-SHA256 签名防盗链下载、MD5 完整性校验。
+  - HMAC-SHA256 签名防盗链下载、MD5 完整性校验（详情返回 `md5`，下载响应头返回 `X-Content-MD5`）。
   - 同一 IP 每天上传上限 500 张（ADMIN/SUPER_ADMIN 不限）。
 - **图集归档 (Album)**：
   - 用户可创建图集，归档**已过审**图片，支持标题/描述/标签/可见性。
@@ -185,6 +186,7 @@ server:
     key: "default_secret"            # JWT 签名密钥（务必替换）
     timeout: 86400000                # Access Token 有效期（毫秒，1 天）
     refresh_timeout: 691200000       # Refresh Token 有效期（毫秒，8 天）
+  cookie_secure: false               # 登录下发的 koharu_token Cookie 是否带 Secure（HTTPS 部署时设 true）
   image_lib:
     path: "./images"                 # 已废弃（仅为兼容旧配置保留）：原图实际写在 upload.dir 下的 images 子目录
     cache_path: "./uploads/image_cache"  # 缩略图缓存目录（必须位于 upload.dir 之内，否则回退为 <upload.dir>/image_cache 并告警）
@@ -279,13 +281,25 @@ auth:
 | GET | `/images/my` | 我的投稿（含 `archived` 归档标记，可用 `?status=` 过滤） | 登录 |
 | GET | `/images/:id/thumbnail` | 缩略图流 | 已过审公开 / 未过审 本人或 MODERATOR+ |
 | GET | `/images/:id/sign` | 生成签名下载链接（返回含 `/api` 前缀的绝对地址，有效期同 `expiresInMs`） | 公开（未过审图片的链接在下载时被拒） |
-| GET | `/images/:id/download` | 下载原图（需有效签名） | 已过审公开 / 未过审 本人或 MODERATOR+ |
-| GET | `/images/:id` | 图片详情（已脱敏，不含 `path`/`md5`/`uploaderIp`/`reviewedBy`） | 已过审公开 / 未过审 本人或 MODERATOR+ |
+| GET | `/images/:id/download` | 下载原图（需有效签名；响应头带 `X-Content-MD5`） | 已过审公开 / 未过审 本人或 MODERATOR+ |
+| GET | `/images/:id` | 图片详情（不含 `path`/`uploaderIp`/`reviewedBy`，含 `md5`） | 已过审公开 / 未过审 本人或 MODERATOR+ |
 | DELETE | `/images/:id` | 删除图片 | 本人/上级 |
 
 > 审核闭环：审核界面先调 `GET /images/pending` 取到待审核图片的 `id`，再调 `POST /images/:id/review`；`GET /images?status=pending` 是同一份数据的通用筛选入口（不排序、不带上传者）。上传者本人可以查看自己待审核/被拒的图片详情与缩略图，否则改稿时无从对照。
 >
 > 游客可见范围：已过审图片的详情、缩略图、签名链接与原始文件均无需登录；未过审（含图集里因改稿退回待审核的图片）只对审核员及以上与上传者本人可见。所有响应里的 `thumbnailUrl` 都带 `/api` 前缀，可直接作为 `<img src>` 使用。
+>
+> 凭证携带：图片接口既认 `Authorization: Bearer`，也认登录时下发的 `koharu_token` Cookie（`HttpOnly` + `SameSite=Lax`）。`<img src>`、`<a download>` 无法携带自定义请求头，必须靠 Cookie 才能访问「本人可见但未过审」的图片——否则会出现「自己看自己的投稿 403」。
+
+### library（图库密钥）
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/library/status` | 图库是否解锁、密钥版本、重加密进度 | 公开 |
+| POST | `/library/password` | 修改图库密码（`{ oldPassword, newPassword }`），触发后台重加密 | ADMIN+ |
+| POST | `/library/unlock` | 锁定态下用图库密码解锁（`{ password }`） | ADMIN+ |
+
+> 图库密码是图片静态加密的根，初始化时随机生成并写入 `adminInfo/info.json` 的 `library.password`；数据库里只有 bcrypt 哈希与被密码包裹的数据密钥。改密码不需要停服，详见 [docs/05-config-and-deploy.md](docs/05-config-and-deploy.md)。
 
 ### albums（图集归档）
 
@@ -332,7 +346,7 @@ auth:
 | 接口 | 响应体 |
 |---|---|
 | `POST /images`、`POST /images/:id/modify` | `{ message, image: ImageResponseDto }` |
-| `POST /images/:id/review`、`GET /images/:id` | `ImageResponseDto`（不含 `path`/`md5`/`uploaderIp`/`reviewedBy`） |
+| `POST /images/:id/review`、`GET /images/:id` | `ImageResponseDto`（不含 `path`/`uploaderIp`/`reviewedBy`，含 `md5`） |
 | `GET /images` | `{ data: ImageListItemDto[], total, page, limit, totalPages }` |
 | `GET /images/my` | `{ data: MyImageListItemDto[], total, page, limit, totalPages }`（多 `rejectReason`、`archived`） |
 | `GET /images/pending` | `{ data: PendingImageDto[], total, page, limit, totalPages }`（多 `username`） |
@@ -356,12 +370,12 @@ auth:
 | [docs/README.md](./docs/README.md) | 索引、五分钟启动、目录结构、全局约定、审核闭环 |
 | [docs/01-architecture.md](./docs/01-architecture.md) | 分层、模块装配、请求生命周期、鉴权链、审核状态机、文件存储、审计、后台任务 |
 | [docs/02-auth-and-permissions.md](./docs/02-auth-and-permissions.md) | 角色层级、权限矩阵、登录流程、频控、游客可见性、审核规则 |
-| [docs/03-api.md](./docs/03-api.md) | 43 个操作的端点表、请求/响应 DTO 字段、curl 示例 |
+| [docs/03-api.md](./docs/03-api.md) | 46 个操作的端点表、请求/响应 DTO 字段、curl 示例 |
 | [docs/04-data-model.md](./docs/04-data-model.md) | 表结构、枚举、索引、级联与迁移注意 |
-| [docs/05-config-and-deploy.md](./docs/05-config-and-deploy.md) | 配置全键、构建启动、日志、反向代理、上线检查清单 |
+| [docs/05-config-and-deploy.md](./docs/05-config-and-deploy.md) | 配置全键、构建启动、日志、图库密码运维、反向代理、上线检查清单 |
 | [docs/06-errors.md](./docs/06-errors.md) | 错误体、状态码语义、逐端点错误文案、重试建议 |
 | [docs/07-changes.md](./docs/07-changes.md) | 近期改动与已知限制 |
-| [docs/openapi.json](./docs/openapi.json) / [docs/openapi.yaml](./docs/openapi.yaml) | 从运行中的服务导出的 OpenAPI 3.0 规格（43 操作 / 26 schema） |
+| [docs/openapi.json](./docs/openapi.json) / [docs/openapi.yaml](./docs/openapi.yaml) | 从运行中的服务导出的 OpenAPI 3.0 规格（46 操作 / 28 schema） |
 
 ---
 
@@ -378,9 +392,12 @@ auth:
 6. **枚举变更注意**：Postgres 枚举（如 `role`、`visibility`）在 `synchronize` 下不会自动修改已存在的枚举类型，上线后请用 Migration 处理枚举/字段变更。
 7. **边界校验（路径参数）**：所有 `:id` / `:userId` 由 Controller 层的 `ParseUUIDPipe` 校验，格式非法（如 `GET /api/images/1`）直接返回 `400`，不会进入 Service 与数据库——避免非法值触发 PostgreSQL 的 `22P02 invalid input syntax for type uuid` 并被包装成 `500`。客户端请始终使用列表/详情接口返回的 `id`（UUID），不要用数组下标或自增序号。
 8. **审核状态机**：图片审核只能作用于当前 `pending` 的图片，重复审核返回 `409`；审核写入以读到的旧状态为条件（`UPDATE ... WHERE id = ? AND status = <旧状态>`），两名审核员同时审同一张图时后提交者收到 `409` 而不是覆盖前者的结论。头像审核同样只接受 `pending` 投稿。
-9. **未过审内容可见范围**：未过审（`pending` / `rejected`）的图片详情、缩略图仅上传者本人与 `MODERATOR+` 可见；公开详情统一返回脱敏投影（`ImageResponseDto`），不含 `path`、`md5`、`uploaderIp`、`reviewedBy`。
+9. **未过审内容可见范围**：未过审（`pending` / `rejected`）的图片详情、缩略图仅上传者本人与 `MODERATOR+` 可见；公开详情统一返回脱敏投影（`ImageResponseDto`），不含 `path`、`uploaderIp`、`reviewedBy`。
 10. **登录失败频控**：`POST /auth/login` 按用户名（默认 15 分钟 5 次）与 IP（默认 15 分钟 20 次）双桶计数，超额返回 `429` 并带 `retryAfterMs`，封禁期内不再查库、不再做 bcrypt 比对（也避免借响应差异探测用户名是否存在）。计数在进程内存中，多实例部署时各自计数，需要全局一致请接入 Redis；阈值见 `auth.login_throttle`。
 11. **唯一性冲突**：`POST /users` 与 `PATCH /users/:id` 在写入前检查用户名/邮箱是否被占用（含软删除用户，避免撞唯一索引），冲突返回 `409` 而不是 PostgreSQL 约束错误包装成的 `500`。
+12. **静态加密（图库密码）**：原图与缩略图以 AES-256-GCM 落盘（文件头 `KHR1` + 版本号），数据密钥由「图库密码 → scrypt → KEK」包裹后存 `library_secrets`。磁盘被拷走也拿不到可读图片；密码本身只写 `adminInfo/info.json`（`0600`），库里只有 bcrypt 哈希。初始密码随首次启动生成，服务会打一条日志；`adminInfo/` 不可写时请立刻抄下日志里的密码。
+13. **改密码不停服**：`POST /library/password` 会生成新版本密钥、立即切换活跃版本，再后台分批重加密全部原图与重建缩略图；期间新旧版本都能读，进度见 `GET /library/status` 的 `rotation`。解不开密钥时进入锁定态（`503`），用 `POST /library/unlock`（ADMIN+）恢复。
+14. **图片完整性**：`ImageResponseDto` 的 `md5` 与下载响应的 `X-Content-MD5` 都是**明文**的 MD5，前端可在流式下载后自行比对；下载接口也会在服务端校验，不符返回 `500`。
 
 ---
 

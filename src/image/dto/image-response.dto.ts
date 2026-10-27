@@ -5,8 +5,9 @@ import { ImageStatus } from '../../enums/image-status.enum.js';
 /**
  * 图片详情响应体。
  *
- * 刻意不包含 Image 实体里的 path / md5 / uploaderIp / reviewedBy：
- * 详情接口游客也能访问（已过审图片），原图存储路径、上传者 IP、审核人属于内部信息。
+ * 刻意不包含 Image 实体里的 path / uploaderIp / reviewedBy：详情接口游客也能访问
+ * （已过审图片），原图存储路径、上传者 IP、审核人属于内部信息。
+ * md5 保留：前端拿它校验下载到的原图是否被篡改/截断，是完整性校验的必要输入。
  */
 export class ImageResponseDto {
   @ApiProperty({ description: '图片唯一标识 (UUID)' })
@@ -26,6 +27,12 @@ export class ImageResponseDto {
 
   @ApiProperty({ description: '文件大小 (字节)', example: 2048576 })
   size: number;
+
+  @ApiProperty({
+    description: '原图 MD5 (hex)。下载原图后可用它对文件做完整性校验，也用于识别「同一张图被重复上传」',
+    example: '9e107d9d372bb6826bd81d3542a419d6',
+  })
+  md5: string;
 
   @ApiPropertyOptional({ type: Number, nullable: true, description: '图片宽度 (px)', example: 1920 })
   width: number | null;

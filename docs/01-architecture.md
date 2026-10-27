@@ -42,12 +42,13 @@ HTTP ──▶ Controller（路由、Guard 挂载、Swagger 注解、参数 DTO�
 | `AuthModule` | 登录/刷新、`JwtStrategy`、`LoginThrottleService` | `UserModule`、`SecurityModule` |
 | `LoggerModule` | winston Logger 实例（全局可用） | ConfigService |
 | `FileModule` | 文件落盘、路径越界防护、读删 | **`@Global()`**，其它模块不需要 import |
+| `LibraryModule` | 图库密码：密钥材料、加解密、密码轮转 | LibrarySecret、Image、FileModule |
 | `AvatarModule` | 头像投稿/审核/图片流 | Avatar、AvatarSubmission、User |
-| `ImageModule` | 图库主链路 | Image |
+| `ImageModule` | 图库主链路 | Image、LibraryModule |
 | `AuditModule` | 以 `APP_INTERCEPTOR` 全局注册审计拦截器 | AuditLog |
 | `AlbumModule` | 图集 + 标签（`TagController` 也在这一模块里） | Album、Tag、Image |
 | `CleanupModule` | 定时清理过期软删用户 | User |
-| `SeedModule` | 首次启动建主管理员 | User |
+| `SeedModule` | 首次启动建主管理员、初始化图库密码 | User、LibraryModule |
 
 `UserModule` 不在 `AppModule` 里，而是被 `AuthModule` 引入（注册路由的同时供 `AuthService` 复用 `UserService`）。加新模块时注意这一点：只 import 而不使用，Nest 一样会注册其 controller。
 
@@ -150,6 +151,36 @@ uploads/
 | 删除 | 删 DB 记录 + 原图 + 缩略图；图集里只删关联，不删文件 |
 
 `thumbnailUrl` 一律带 `/api` 前缀（`src/common/constants.ts` 的 `API_PREFIX`），前端可以直接当 `<img src>` 用，不要自己拼。
+
+## 静态加密（图库密码）
+
+原图与缩略图在磁盘上**不是明文**，这是为了「拿到服务器磁盘也看不到图」：
+
+```text
+原图文件 = "KHR1" | version(1B) | iv(12B) | tag(16B) | AES-256-GCM(ciphertext)
+```
+
+| 环节 | 实现 |
+|---|---|
+| 算法 | AES-256-GCM（`src/library/library-crypto.service.ts`），每个文件独立 IV，头里带版本号 |
+| 数据密钥 | 32 字节随机值，不落明文库；用 `scrypt(图库密码, salt, 32)` 派生的 KEK 包裹后存 `library_secrets.keys` |
+| 密码本身 | 只在 `adminInfo/info.json` 的 `library.password`（权限 0600），库里只有 bcrypt 哈希用于校验 |
+| 兼容旧数据 | 没有 `KHR1` 头的文件按「升级前的明文」处理；启动后 `encryptLegacyPlaintext()` 会后台把它们补加密 |
+| 改密码 | `activeVersion` +1，新旧密钥并存，后台分批重加密，服务不停；详见 `05-config-and-deploy.md` §6 |
+| 锁定态 | 进程启动时解不开密钥就进入锁定态：缩略图/下载/上传返回 `503`，`POST /api/library/unlock`（ADMIN+）解锁 |
+| 对外行为 | 接口返回的始终是解密后的明文；`X-Content-MD5` 是**明文**的 MD5 |
+
+上传流程因此变成：`saveFile` 落盘 → `sharp` 读元数据（用内存里的 buffer，不读盘）→ 生成缩略图（写盘前加密）→ `sealFile` 把刚落盘的原图就地替换成密文 → 写入 DB。缩略图自愈时先 `decrypt` 原图再重建。
+
+## 鉴权凭证的三种携带方式
+
+| 方式 | 谁在用 | 说明 |
+|---|---|---|
+| `Authorization: Bearer <accessToken>` | 前端 fetch、curl、Swagger | 主路径 |
+| `koharu_token` Cookie | `<img src>`、`<a download>`、iframe | 登录/刷新时下发，`HttpOnly` + `SameSite=Lax`（HTTPS 下再开 `server.cookie_secure`）。浏览器原生请求带不了自定义头，没有它就拿不到「本人可见但未过审」的图 |
+| 下载签名 | `GET /images/:id/download` | `signature` + `expires`，与角色鉴权叠加（未过审仍会二次校验） |
+
+`JwtStrategy` 的 `jwtFromRequest` 是「先 Bearer，后 Cookie」的提取器链；Cookie 解析手写在 `src/auth/strategies/jwt.strategy.ts` 里，没有引入 `cookie-parser`。
 
 ## 审计
 

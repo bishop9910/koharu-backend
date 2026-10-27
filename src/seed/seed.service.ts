@@ -6,6 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity.js';
 import { Role } from '../enums/role.enum.js';
 import { generateRandomHash } from '../common/utils/hash.util.js';
+import { LibraryService } from '../library/library.service.js';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -16,10 +17,14 @@ export class SeedService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private libraryService: LibraryService,
   ) {}
 
   async onModuleInit() {
     this.logger.log('正在检查系统初始化管理员...');
+
+    // 图库密码与管理员账号相互独立：管理员已存在时上面会提前 return，所以先执行这一步
+    await this.ensureLibrarySecret();
 
     const admin = await this.userRepository.findOne({
       where: { username: 'admin' },
@@ -71,6 +76,19 @@ export class SeedService {
       this.logger.warn('请在生产环境中立即修改此密码！');
     } catch (error) {
       this.logger.error('创建默认超级管理员失败:', error);
+    }
+  }
+
+  /**
+   * 图库密码的初始化交给 LibraryService：它生成 24 位随机密码、写入 library_secrets 一行，
+   * 并把密码合并进 adminInfo/info.json 的 library 键（保留原有 username/password 字段）。
+   * 幂等，重复调用不会覆盖已有密码。
+   */
+  private async ensureLibrarySecret(): Promise<void> {
+    try {
+      await this.libraryService.ensureInitialized();
+    } catch (error: any) {
+      this.logger.error(`图库密码初始化失败: ${error?.message ?? error}`);
     }
   }
 }

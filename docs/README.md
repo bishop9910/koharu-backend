@@ -8,12 +8,12 @@
 |---|---|---|
 | [01-architecture.md](01-architecture.md) | 分层、模块依赖、请求生命周期、审核状态机、文件存储 | 接手代码之前 |
 | [02-auth-and-permissions.md](02-auth-and-permissions.md) | 角色层级、权限矩阵、令牌、登录频控、游客可见性、不可自审 | 接前端鉴权之前 |
-| [03-api.md](03-api.md) | 43 个操作的端点表、请求/响应 DTO 字段、错误码、curl 示例 | 对接接口时 |
-| [04-data-model.md](04-data-model.md) | 7 张实体表 + 2 张关联表的字段、枚举、索引与级联 | 改表结构之前 |
-| [05-config-and-deploy.md](05-config-and-deploy.md) | `configs/config.yaml` 全键说明、构建、启动、日志、定时任务 | 部署时 |
+| [03-api.md](03-api.md) | 46 个操作的端点表、请求/响应 DTO 字段、错误码、curl 示例 | 对接接口时 |
+| [04-data-model.md](04-data-model.md) | 8 张实体表 + 2 张关联表的字段、枚举、索引与级联 | 改表结构之前 |
+| [05-config-and-deploy.md](05-config-and-deploy.md) | `configs/config.yaml` 全键说明、构建、启动、日志、图库密码运维、定时任务 | 部署时 |
 | [06-errors.md](06-errors.md) | 统一错误体、状态码语义、各端点错误速查、客户端重试建议 | 写错误处理时 |
 | [07-changes.md](07-changes.md) | 近期改动清单（新增接口、行为变更、修复的缺陷） | 升级已有客户端时 |
-| [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml) | 机器可读的 OpenAPI 3.0 规格，43 个操作 / 26 个 schema | 生成 SDK、导入 Postman |
+| [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml) | 机器可读的 OpenAPI 3.0 规格，46 个操作 / 28 个 schema | 生成 SDK、导入 Postman |
 
 `openapi.json` 是从运行中的服务导出的规格（`GET /api-doc-json`），不是手写。它和 Swagger UI（`/api-doc`）同源，所以**接口有变动时这两个文件要一起重新导出**，见文末。
 

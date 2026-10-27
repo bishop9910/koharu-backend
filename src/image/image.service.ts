@@ -26,6 +26,7 @@ import { isStaff, canManageTarget } from '../common/utils/role.util.js';
 import { ImageResponseDto } from './dto/image-response.dto.js';
 import { ImageListItemDto } from './dto/image-list-item.dto.js';
 import { API_PREFIX } from '../common/constants.js';
+import { LibraryCryptoService } from '../library/library-crypto.service.js';
 
 @Injectable()
 export class ImageService {
@@ -39,6 +40,7 @@ export class ImageService {
     @InjectRepository(Image)
     private imageRepository: Repository<Image>,
     private fileService: FileService,
+    private libraryCrypto: LibraryCryptoService,
     private configService: ConfigService,
   ) {
     this.cacheDir = this.resolveCacheDir();
@@ -332,6 +334,9 @@ export class ImageService {
 
   private async processFile(file: Express.Multer.File) {
     const originalPath = await this.fileService.saveFile(file, 'images');
+    // FileService 负责大小/MIME/magic bytes 校验与随机命名（这些都要求明文），
+    // 校验通过后立刻原地加密，磁盘上的最终形态始终是密文
+    await this.sealFile(originalPath);
     const metadata = await sharp(file.buffer).metadata();
     const thumbnailPath = await this.generateThumbnail(file.buffer, path.basename(originalPath), file.mimetype);
     const md5 = calculateMD5(file.buffer);
@@ -345,6 +350,18 @@ export class ImageService {
       height: metadata.height,
       mimeType: file.mimetype,
     };
+  }
+
+  /**
+   * 原地把磁盘上的明文文件加密成密文。
+   *
+   * 已经有 KHR1 头的文件直接跳过（重复调用安全）；预览密文格式见 LibraryCryptoService。
+   * 用原子写，避免轮转/补偿加密期间读到半个文件。
+   */
+  private async sealFile(relativePath: string): Promise<void> {
+    const stored = await this.fileService.readFile(relativePath);
+    if (this.libraryCrypto.isEncrypted(stored)) return;
+    await this.fileService.writeFileAtomically(relativePath, this.libraryCrypto.encrypt(stored));
   }
 
   private async generateThumbnail(
@@ -375,8 +392,9 @@ export class ImageService {
     const thumbFilename = `thumb_${nameWithoutExt}${thumbExt}`;
     const thumbRelativePath = `${this.cacheDir}/${thumbFilename}`;
 
-    // 统一走 FileService 写入，保证「写到哪儿」和「从哪儿读」是同一个根
-    await this.fileService.writeBuffer(thumbRelativePath, await processor.toBuffer());
+    // 统一走 FileService 写入，保证「写到哪儿」和「从哪儿读」是同一个根；
+    // 缩略图同样是图片内容，和原图一样用图库密钥加密后落盘
+    await this.fileService.writeBuffer(thumbRelativePath, this.libraryCrypto.encrypt(await processor.toBuffer()));
 
     return thumbRelativePath;
   }
@@ -397,7 +415,7 @@ export class ImageService {
 
       let originalBuffer: Buffer;
       try {
-        originalBuffer = await this.fileService.readFile(image.path);
+        originalBuffer = this.libraryCrypto.decrypt(await this.fileService.readFile(image.path));
       } catch (error: any) {
         this.logger.error(
           `原图文件丢失，无法自愈缩略图！图片ID: ${image.id}, 原图路径: ${image.path}, 原因: ${error?.message}`,
@@ -422,7 +440,7 @@ export class ImageService {
     }
 
     return {
-      buffer: await this.fileService.readFile(thumbRelativePath),
+      buffer: this.libraryCrypto.decrypt(await this.fileService.readFile(thumbRelativePath)),
       mimeType: mimeFromPath(thumbRelativePath),
     };
   }
@@ -452,7 +470,7 @@ export class ImageService {
     signature: string,
     expires: string,
     currentUser?: any,
-  ): Promise<{ buffer: Buffer; mimeType: string; filename: string }> {
+  ): Promise<{ buffer: Buffer; mimeType: string; filename: string; md5: string }> {
     const expiresMs = parseInt(expires, 10);
     const now = Date.now();
 
@@ -470,7 +488,7 @@ export class ImageService {
       );
     }
 
-    const originalBuffer = await this.fileService.readFile(image.path);
+    const originalBuffer = this.libraryCrypto.decrypt(await this.fileService.readFile(image.path));
 
     const currentMd5 = calculateMD5(originalBuffer);
     if (currentMd5 !== image.md5) {
@@ -484,6 +502,7 @@ export class ImageService {
       buffer: originalBuffer,
       mimeType: image.mimeType,
       filename: image.filename,
+      md5: image.md5,
     };
   }
 
@@ -567,6 +586,7 @@ export class ImageService {
       thumbnailUrl: `/${API_PREFIX}/images/${image.id}/thumbnail`,
       mimeType: image.mimeType,
       size: image.size,
+      md5: image.md5,
       width: image.width,
       height: image.height,
       userId: image.userId,

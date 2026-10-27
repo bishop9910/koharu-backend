@@ -13,6 +13,7 @@ export const default_config = {
   server: {
     port: 3000,
     frontend_dir: "./frontend/dist", // 前端构建产物目录（SPA），根路径托管
+    cookie_secure: false, // 登录 Cookie 是否只走 HTTPS。反向代理上了 TLS 后设为 true
     token: {
       key: "default_secret", // token密钥 hash
       timeout: 24 * 60 * 60 * 1000, // 毫秒, 一天

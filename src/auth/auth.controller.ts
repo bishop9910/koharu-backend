@@ -6,8 +6,11 @@ import {
   Body, 
   HttpCode, 
   HttpStatus, 
-  Req
+  Req,
+  Res
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { 
   ApiTags, 
   ApiOperation, 
@@ -20,11 +23,15 @@ import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { Role } from '../enums/role.enum.js';
+import { AUTH_COOKIE_NAME } from '../common/constants.js';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private configService: ConfigService,
+  ) {}
 
   /**
    * 获取登录密码加密公钥
@@ -91,8 +98,10 @@ export class AuthController {
       },
     },
   })
-  async login(@Body() loginDto: LoginDto, @Req() req: any) {
-    return this.authService.loginWithThrottle(loginDto, req.ip);
+  async login(@Body() loginDto: LoginDto, @Req() req: any, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.loginWithThrottle(loginDto, req.ip);
+    this.setAuthCookie(res, result.accessToken, result.expiresIn);
+    return result;
   }
 
   /**
@@ -116,7 +125,27 @@ export class AuthController {
     }
   })
   @ApiUnauthorizedResponse({ description: '无效的 Refresh Token 或已过期，请重新登录' })
-  async refresh(@Body() dto: RefreshTokenDto) {
-    return this.authService.refreshToken(dto);
+  async refresh(@Body() dto: RefreshTokenDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.refreshToken(dto);
+    this.setAuthCookie(res, result.accessToken, result.expiresIn);
+    return result;
+  }
+
+  /**
+   * 登录 / 刷新后同时下发一份 httpOnly Cookie。
+   *
+   * 浏览器发 <img>、<video>、<a download> 请求时不会带 Authorization 头，
+   * 图片接口若只认 Bearer，用户就看不到自己未过审的缩略图（必然 403）。
+   * JwtStrategy 会把 Cookie 作为 Bearer 之外的备选来源，两条通道等价。
+   */
+  private setAuthCookie(res: Response, accessToken: string, maxAgeMs: number): void {
+    res.cookie(AUTH_COOKIE_NAME, accessToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      // 生产走 HTTPS 时应把 server.cookie_secure 设为 true
+      secure: this.configService.get<boolean>('server.cookie_secure', false),
+      path: '/',
+      maxAge: maxAgeMs,
+    });
   }
 }

@@ -12,6 +12,9 @@
 | `GET /api/avatars/pending` | MODERATOR+ | 待审核头像队列 |
 | `GET /api/avatars/{userId}/pending/image` | MODERATOR+ | 待审核头像图片流 |
 | `GET /api/auth/public-key` | 公开 | 取 RSA 公钥，用于加密登录密码 |
+| `GET /api/library/status` | 公开 | 查询图库是否已解锁、密钥版本、重加密进度 |
+| `POST /api/library/password` | ADMIN+ | 修改图库密码并触发后台重加密 |
+| `POST /api/library/unlock` | ADMIN+ | 锁定态下用图库密码解锁 |
 
 ### 1.2 响应形状变化
 
@@ -64,6 +67,19 @@
 | 登录无频控 | 可无限撞库 | 用户名 + IP 双桶，5/20 次 |
 | 改邮箱撞唯一索引 500 | 客户端拿不到可读错误 | 预检 → 409 |
 | 图集详情泄露未过审图片 | 私有图集里待审图被他人看到 | `toDetailDto` 按角色过滤 |
+| 所有 `thumbnailUrl` 缺 `/api` 前缀 | 直接当 `<img src>` 用必然 404 | 统一用 `API_PREFIX` 拼接 |
+| 获取本人的待审投稿返回 403 | 前端 `<img>` 带不了 `Authorization`，本人也看不到自己的图 | 登录/刷新下发 `koharu_token` Cookie，`JwtStrategy` 增加 Cookie 提取器 |
+
+## 2.1 图库密码与静态加密（本轮新增）
+
+| 变更 | 说明 |
+|---|---|
+| 新增 `library_secrets` 表 | 全库一行；只存 scrypt 盐、bcrypt 哈希、被密码包裹的数据密钥，密码本体不落库 |
+| 新增 `/api/library/status`、`/library/password`、`/library/unlock` | 见 [03 §1.8](03-api.md#18-图库密钥-apilibrary)；改密码与解锁都要 ADMIN+ |
+| 图片落盘改为 AES-256-GCM 密文 | 文件头 `KHR1` + 版本号；旧明文文件启动后后台补加密 |
+| 改密码不停服 | `activeVersion` +1，新旧密钥并存，后台分批重加密；进度在 `/library/status` 的 `rotation` |
+| `ImageResponseDto` 增加 `md5` | 前端可在下载后做完整性校验；`/download` 同时返回 `X-Content-MD5` 响应头 |
+| 锁定态 | 解不开密钥时缩略图/下载/上传返回 `503`，需 ADMIN+ 调 `/library/unlock` |
 
 ## 3. 未做 / 已知限制
 

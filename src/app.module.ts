@@ -15,6 +15,7 @@ import { ImageModule } from './image/image.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AlbumModule } from './album/album.module.js';
 import { CleanupModule } from './cleanup/cleanup.module.js';
+import { LibraryModule } from './library/library.module.js';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { CleanupModule } from './cleanup/cleanup.module.js';
       AuthModule,
       LoggerModule,
       FileModule,
+      LibraryModule,
       AvatarModule,
       ImageModule,
       AuditModule,

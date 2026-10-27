@@ -234,7 +234,7 @@ export class ImageController {
   @Get(':id/download')
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: '下载原图 (需有效签名)', description: '已过审图片游客持签名链接即可下载；未过审图片仅审核员及以上或上传者本人可下载，其余返回 403' })
-  @ApiResponse({ status: 200, description: '返回原图二进制流，Content-Type 为原图实际的 MIME，并带 Content-Disposition: attachment', content: { 'image/jpeg': { schema: { type: 'string', format: 'binary' } }, 'image/png': { schema: { type: 'string', format: 'binary' } }, 'image/webp': { schema: { type: 'string', format: 'binary' } }, 'image/gif': { schema: { type: 'string', format: 'binary' } } } })
+  @ApiResponse({ status: 200, description: '返回原图二进制流，Content-Type 为原图实际的 MIME，带 Content-Disposition: attachment 与 X-Content-MD5（供前端校验完整性）', content: { 'image/jpeg': { schema: { type: 'string', format: 'binary' } }, 'image/png': { schema: { type: 'string', format: 'binary' } }, 'image/webp': { schema: { type: 'string', format: 'binary' } }, 'image/gif': { schema: { type: 'string', format: 'binary' } } } })
   @ApiResponse({ status: 400, description: '签名无效或已过期' })
   @ApiResponse({ status: 403, description: '图片已被拒绝或无权下载未过审图片' })
   @ApiResponse({ status: 404, description: '图片不存在' })
@@ -245,18 +245,20 @@ export class ImageController {
     @Req() req: any,
     @Res() res: Response,
   ) {
-    const { buffer, mimeType, filename } = await this.imageService.getOriginal(id, query.signature, query.expires, req.user);
+    const { buffer, mimeType, filename, md5 } = await this.imageService.getOriginal(id, query.signature, query.expires, req.user);
     res.set({
       'Content-Type': mimeType,
       'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      // 浏览器里前端通过 fetch 拿到 blob 后，用它与 GET /images/:id 的 md5 对比即可判断文件是否完整
+      'X-Content-MD5': md5,
     });
     res.send(buffer);
   }
 
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
-  @ApiOperation({ summary: '获取图片详情', description: '已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / md5 / uploaderIp / reviewedBy' })
+  @ApiOperation({ summary: '获取图片详情', description: '已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / uploaderIp / reviewedBy；md5 保留，供前端校验下载到的原图是否完整' })
   @ApiOkResponse({ type: ImageResponseDto, description: '返回图片详细信息' })
   @ApiResponse({ status: 403, description: '无权查看未通过审核的图片' })
   @ApiResponse({ status: 404, description: '图片不存在' })
