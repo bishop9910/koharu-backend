@@ -109,8 +109,9 @@ export class ImageService {
       uploaderIp: ip ?? null,
     });
 
-    this.logger.log(`用户 ${currentUser?.id} 上传图片，等待审核: ${image.id}, MD5: ${processed.md5}`);
-    return this.toDetailDto(await this.imageRepository.save(image));
+    const saved = await this.imageRepository.save(image);
+    this.logger.log(`用户 ${currentUser?.id} 上传图片，等待审核: ${saved.id}, MD5: ${processed.md5}`);
+    return this.toDetailDto(saved);
   }
 
   async modify(imageId: string, file: Express.Multer.File, currentUser: any): Promise<ImageResponseDto> {

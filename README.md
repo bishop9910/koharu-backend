@@ -162,6 +162,17 @@ pnpm run start:prod
 - OpenAPI YAML：`http://localhost:3000/api-yaml`
 - 根路径 `http://localhost:3000/`：托管 `server.frontend_dir` 下的前端产物，非 `/api`、`/api-doc` 的 GET 请求回退到 `index.html`（SPA 路由）
 
+### 5. 打包成 Windows 可执行文件（可选）
+
+```bash
+pnpm add -D esbuild postject   # 一次性
+node scripts/package-sea.mjs   # 产物：dist-exe/{koharu.exe, node_modules/, configs/, adminInfo/, uploads/, logs/}
+cd dist-exe && .\koharu.exe    # 必须在本目录启动
+```
+
+`sharp`、`bcrypt`、`pg`、`swagger-ui-dist` 是原生/磁盘依赖，所以产物是「exe + 依赖目录」而不是单文件。细节与已知坑见 [docs/05-config-and-deploy.md](docs/05-config-and-deploy.md#打包成-windows-可执行文件可选)。冒烟：`node scripts/smoke-packaged.mjs`（需先启动 exe）。
+
+
 ---
 
 ## 配置说明 (Configuration)

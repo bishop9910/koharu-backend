@@ -136,6 +136,47 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 ```
 
+### 打包成 Windows 可执行文件（可选）
+
+`scripts/package-sea.mjs` 用 Node 官方的 SEA（Single Executable Application）把服务打成 `koharu.exe`，适合把后端直接丢给一台装有 PostgreSQL 的 Windows 机器。
+
+```bash
+pnpm add -D esbuild postject     # 只需一次
+node scripts/package-sea.mjs     # 产物在 dist-exe/
+```
+
+产物结构：
+
+```text
+dist-exe/
+├─ koharu.exe            # 90 MB 左右（内含 Node 22 + 打包后的应用代码）
+├─ node_modules/         # 只放原生模块与必须落盘的包：sharp、@img/sharp-win32-x64、bcrypt、pg、strtok3、swagger-ui-dist
+├─ configs/              # 从项目复制来的配置（含 RSA 密钥对）
+├─ adminInfo/            # seed 写入 admin 与图库密码
+├─ uploads/              # images / avatars / image_cache
+└─ logs/                 # error / combined
+```
+
+启动方式：`cd dist-exe && .\koharu.exe`（**必须**从 `dist-exe` 目录启动，配置、上传、日志都按当前工作目录解析）。
+
+为什么不是真单文件：
+
+| 依赖 | 原因 |
+|---|---|
+| `sharp` | 运行时按自身路径找 `@img/sharp-win32-x64` 里的 libvips DLL 与 `.node`，必须留在磁盘上 |
+| `bcrypt` | `.node` 原生插件无法塞进可执行文件 |
+| `pg` | TypeORM 通过 `createRequire()` 在运行时加载驱动 |
+| `swagger-ui-dist` | `@nestjs/swagger` 从磁盘读静态资源 |
+
+打包脚本已经处理的四个坑（改动前请先读脚本注释）：
+
+1. `import.meta.url` 在 CJS 产物里是空对象，而 `@nestjs/typeorm` 在模块顶层用它 `createRequire` → 脚本把占位符替换成 `process.execPath`。
+2. SEA 的全局 `require()` 只能载内置模块，TypeORM 的 `PlatformTools.load()` 会因此报「Postgres package has not been found installed」→ 脚本注入 `__seaRequire`（先按 exe 同级 `node_modules` 解析，再退回启动目录）并改写该函数。
+3. `file-type` 用动态 `import('strtok3')`，SEA 里解析不到 → 脚本改写 `importAtRuntime` 并对 `strtok3` 一并出包。
+4. esbuild 会把重名类改名（`class Avatar` → `class Avatar2`），而 TypeORM 的实体关系按 `target.name` 字符串解析 → 必须带 `--keep-names`。
+
+冒烟脚本：先在 `dist-exe` 下启动 exe，再在项目根目录 `node scripts/smoke-packaged.mjs`，覆盖登录（bcrypt）、待审核队列（pg）、打包后的 Swagger、上传与缩略图（sharp）。
+
 ## 5. 反向代理注意事项
 
 服务端取客户端 IP 用的是 `req.ip`，而应用**没有配置 `trust proxy`**。如果前面挂了 Nginx 且用 `proxy_pass` 直连，所有请求的 `req.ip` 都会变成 `127.0.0.1`，直接导致：
