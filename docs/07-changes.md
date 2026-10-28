@@ -15,6 +15,9 @@
 | `GET /api/library/status` | 公开 | 查询图库是否已解锁、密钥版本、重加密进度 |
 | `POST /api/library/password` | ADMIN+ | 修改图库密码并触发后台重加密 |
 | `POST /api/library/unlock` | ADMIN+ | 锁定态下用图库密码解锁 |
+| `GET /api/review-exemptions` | ADMIN+ | 查看自审赦免名单（只列被显式授予的审核员） |
+| `POST /api/review-exemptions/{userId}` | ADMIN+ | 把审核员加入自审赦免名单，之后可审核自己的图片/头像 |
+| `DELETE /api/review-exemptions/{userId}` | ADMIN+ | 把审核员移出名单，恢复「不能自审」 |
 
 ### 1.2 响应形状变化
 
@@ -42,8 +45,8 @@
 | `GET /api/images/{id}/download` | 必须登录 | **公开**（先验签名，再按 `canPreview` 校验身份） |
 | `GET /api/images` | 无 guard | 可选认证（带 token 才允许 `status` 过滤） |
 | `GET /api/avatars/{userId}/pending/image` | MODERATOR+ | 本人 或 MODERATOR+ |
-| `POST /api/images/{id}/review` | 可自审 | **自审 403** |
-| `POST /api/avatars/{userId}/review` | 可自审 | **自审 403** |
+| `POST /api/images/{id}/review` | 可自审 | **默认自审 403**；ADMIN+ 天然豁免，审核员在自审赦免名单内时放行 |
+| `POST /api/avatars/{userId}/review` | 可自审 | **默认自审 403**；ADMIN+ 天然豁免，审核员在自审赦免名单内时放行 |
 | 任一 `OptionalJwtAuthGuard` 端点 | 凭证失效时静默按游客处理（表现为 403） | 凭证失效返回 `401`；只有完全不带凭证才是游客 |
 
 ### 1.4 新增的错误
@@ -54,6 +57,9 @@
 | `409` | 重复审核（目标状态与当前相同） | 幂等调用方需处理 |
 | `409` | 审核期间状态被他人改变 | 条件更新，`affected = 0` |
 | `409` | `PATCH /users/{id}` 用户名/邮箱冲突 | 原来可能 500 |
+| `409` | 把 ADMIN+ 加进赦免名单，或重复加入 | 管理员本就豁免；重复加入无需处理 |
+| `400` | 给 USER / GUEST 授予自审赦免 | 他们没有审核权限 |
+| `400` | 把 ADMIN+ 移出赦免名单 | 管理员默认豁免，本就不在名单中 |
 
 ## 2. 修复的缺陷
 
@@ -92,7 +98,17 @@
 
 ## 2.2 OpenAPI 规格重新导出
 
-`docs/openapi.json` 与 `docs/openapi.yaml` 已从运行中的服务重新导出，与当前实现一致：**35 个 path / 46 个 operation / 28 个 schema**，`components.securitySchemes` 为 `bearer` + `koharu_token`（cookie），缩略图 / 签名 / 下载三个图片流接口另外声明了可选 `?access_token=` 参数，`GET /api/avatars/{userId}/pending/image` 的 `security` 为「Cookie 或 Bearer 二者之一」。改了 DTO 或 controller 之后必须重导，步骤见 [README · 重新导出 OpenAPI 规格](README.md#重新导出-openapi-规格)。
+`docs/openapi.json` 与 `docs/openapi.yaml` 已从运行中的服务重新导出，与当前实现一致：**37 个 path / 49 个 operation / 29 个 schema**，`components.securitySchemes` 为 `bearer` + `koharu_token`（cookie），缩略图 / 签名 / 下载三个图片流接口另外声明了可选 `?access_token=` 参数，`GET /api/avatars/{userId}/pending/image` 的 `security` 为「Cookie 或 Bearer 二者之一」。改了 DTO 或 controller 之后必须重导，步骤见 [README · 重新导出 OpenAPI 规格](README.md#重新导出-openapi-规格)。
+
+## 2.3 自审豁免（本轮新增）
+
+| 变更 | 说明 |
+|---|---|
+| 修复：管理员及以上也无法审核自己的图片 | 原先是无条件 `image.userId === reviewerId` → `403`，未区分角色；现在 `ADMIN` / `SUPER_ADMIN` 天然豁免（图片与头像审核一致） |
+| 新增 `users.reviewExempt` 列 | 布尔，默认 `false`；审核员被授予自审资格时置 `true`。管理员不依赖此列 |
+| 新增 `/api/review-exemptions` 三个接口 | 列表 / 加入 / 移出，均 ADMIN+；见 [03 §1.9](03-api.md#19-自审赦免-apireview-exemptions) |
+| 审计日志自动覆盖 | 加入/移出都是非 GET 请求，`AuditLogInterceptor` 记录 `action = POST /review-exemptions/:userId` 等，授予时间可从日志回溯 |
+| 生产环境需要手工加列 | 仓库无迁移文件，`synchronize=false`：`ALTER TABLE users ADD COLUMN "reviewExempt" boolean NOT NULL DEFAULT false;` |
 
 ## 3. 未做 / 已知限制
 

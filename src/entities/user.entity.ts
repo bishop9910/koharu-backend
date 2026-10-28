@@ -50,6 +50,13 @@ export class User {
   @Column({ default: true })
   emailVerified: boolean;
 
+  @ApiProperty({
+    description: '是否在自审赦免名单：为 true 的审核员可以审核自己上传的图片/提交的头像。管理员及以上天然豁免，不依赖此列',
+    default: false,
+  })
+  @Column({ default: false })
+  reviewExempt: boolean;
+
   @ApiPropertyOptional({ description: '关联的头像信息', type: () => UserAvatarDto, nullable: true })
   @OneToOne('Avatar', (avatar: Avatar) => avatar.user, {
     cascade: true, 

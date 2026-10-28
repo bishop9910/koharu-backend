@@ -43,11 +43,12 @@ HTTP ──▶ Controller（路由、Guard 挂载、Swagger 注解、参数 DTO�
 | `LoggerModule` | winston Logger 实例（全局可用） | ConfigService |
 | `FileModule` | 文件落盘、路径越界防护、读删 | **`@Global()`**，其它模块不需要 import |
 | `LibraryModule` | 图库密码：密钥材料、加解密、密码轮转 | LibrarySecret、Image、FileModule |
-| `AvatarModule` | 头像投稿/审核/图片流 | Avatar、AvatarSubmission、User |
-| `ImageModule` | 图库主链路 | Image、LibraryModule |
+| `AvatarModule` | 头像投稿/审核/图片流 | Avatar、AvatarSubmission、User、`ReviewExemptionModule` |
+| `ImageModule` | 图库主链路 | Image、LibraryModule、`ReviewExemptionModule` |
 | `AuditModule` | 以 `APP_INTERCEPTOR` 全局注册审计拦截器 | AuditLog |
 | `AlbumModule` | 图集 + 标签（`TagController` 也在这一模块里） | Album、Tag、Image |
 | `CleanupModule` | 定时清理过期软删用户 | User |
+| `ReviewExemptionModule` | 自审赦免名单：管理员把审核员加进/移出名单 | User |
 | `SeedModule` | 首次启动建主管理员、初始化图库密码 | User、LibraryModule |
 
 `UserModule` 不在 `AppModule` 里，而是被 `AuthModule` 引入（注册路由的同时供 `AuthService` 复用 `UserService`）。加新模块时注意这一点：只 import 而不使用，Nest 一样会注册其 controller。
@@ -108,7 +109,7 @@ JWT 的 payload 只有一个 `sub`（用户 id），**角色永远来自数据�
 
 - 审核只接受 `approved` / `rejected` 入参；把 `pending` 传给审核接口是 400。
 - 审核带并发保护：以读到的旧状态作为 `UPDATE ... WHERE id = ? AND status = ?` 的条件，`affected = 0` 说明被别的审核员抢先改过，返回 **409**；重复审成同一状态也是 409。
-- 不能审自己上传的图片（403）。
+- 不能审自己上传的图片（403）：`ADMIN` / `SUPER_ADMIN` 天然豁免，被加入自审赦免名单（`users.reviewExempt`）的审核员同样放行；豁免判定由 `ReviewExemptionService.isSelfReviewExempt()` 统一提供，头像审核复用同一套。
 - 改稿仅限上传者本人，且 `editCount` 已为 1 时拒绝；改稿会删掉旧原图与旧缩略图、写入新文件，状态回到 `pending`。
 
 ### 头像
@@ -126,6 +127,7 @@ submit ──▶ avatar_submissions(pending)
 ```
 
 - 同一用户同时只能有一条 pending 投稿，重复提交 409。
+- 不能审自己提交的头像（403），豁免规则与图片一致：ADMIN+ 天然豁免，审核员在自审赦免名单内时放行。
 - 拒绝时**不落库拒绝原因**：`avatar_submissions` 没有 `rejectReason` 列。原因只写进审计日志。这是已知限制，要补得加列并写迁移（生产 `synchronize=false`）。
 - 通过时返回 `{ message, status, avatar: { id, userId, createdAt } }`；拒绝时 `avatar` 为 `null`，两种结果形状一致，前端不用分支。
 

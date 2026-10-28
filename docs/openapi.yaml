@@ -16,7 +16,9 @@ paths:
         - app
   /api/auth/public-key:
     get:
-      description: 返回 RSA 公钥（SPKI PEM）。前端用 RSA-OAEP(SHA-256) 加密登录密码后，再以 encrypted=true 提交 /auth/login
+      description: >-
+        返回 RSA 公钥（SPKI PEM）。前端用 RSA-OAEP(SHA-256) 加密登录密码后，再以 encrypted=true 提交
+        /auth/login
       operationId: AuthController_getPublicKey
       parameters: []
       responses:
@@ -35,7 +37,9 @@ paths:
         - auth
   /api/auth/login:
     post:
-      description: 使用用户名和密码进行认证，成功后返回 Access Token 和 Refresh Token。失败次数过多会暂时拒绝（同一用户名 15 分钟 5 次 / 同一 IP 20 次，可通过 `auth.login_throttle` 配置）
+      description: >-
+        使用用户名和密码进行认证，成功后返回 Access Token 和 Refresh Token。失败次数过多会暂时拒绝（同一用户名 15 分钟
+        5 次 / 同一 IP 20 次，可通过 `auth.login_throttle` 配置）
       operationId: AuthController_login
       parameters: []
       requestBody:
@@ -409,7 +413,9 @@ paths:
         - users
   /api/users/{id}/role:
     patch:
-      description: 超级管理员可授予 ADMIN/MODERATOR/USER/GUEST；管理员可授予 MODERATOR/USER/GUEST；审核员可授予 USER/GUEST
+      description: >-
+        超级管理员可授予 ADMIN/MODERATOR/USER/GUEST；管理员可授予 MODERATOR/USER/GUEST；审核员可授予
+        USER/GUEST
       operationId: UserController_updateRole
       parameters:
         - name: id
@@ -545,6 +551,7 @@ paths:
         - images
   /api/images/{id}/review:
     post:
+      description: 默认不能审核自己上传的图片；管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样可以审核自己的图片
       operationId: ImageController_reviewImage
       parameters:
         - name: id
@@ -568,7 +575,7 @@ paths:
         '400':
           description: 拒绝时必须提供原因，或审核状态非法
         '403':
-          description: 权限不足
+          description: 权限不足，或试图审核自己上传的图片且未获得自审赦免
         '404':
           description: 图片不存在
         '409':
@@ -741,7 +748,9 @@ paths:
         - images
   /api/images/{id}/thumbnail:
     get:
-      description: '已过审图片游客可预览；未过审图片仅审核员及以上或上传者本人可查看。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token= 三种方式之一携带；带了凭证但无效返回 401，完全不携带才按游客处理'
+      description: >-
+        已过审图片游客可预览；未过审图片仅审核员及以上或上传者本人可查看。凭证可用 Authorization: Bearer、koharu_token
+        Cookie 或 ?access_token= 三种方式之一携带；带了凭证但无效返回 401，完全不携带才按游客处理
       operationId: ImageController_getThumbnail
       parameters:
         - name: id
@@ -779,7 +788,9 @@ paths:
         - images
   /api/images/{id}/sign:
     get:
-      description: 无需登录：已过审图片对所有人开放，游客也能拿到链接；未过审图片仅审核员及以上与上传者本人可生成。downloadUrl 是含协议与主机名的绝对地址，有效期等于 expiresInMs
+      description: >-
+        无需登录：已过审图片对所有人开放，游客也能拿到链接；未过审图片仅审核员及以上与上传者本人可生成。downloadUrl
+        是含协议与主机名的绝对地址，有效期等于 expiresInMs
       operationId: ImageController_generateSignedUrl
       parameters:
         - name: id
@@ -817,7 +828,9 @@ paths:
         - images
   /api/images/{id}/download:
     get:
-      description: '已过审图片游客持签名链接即可下载；未过审图片仅审核员及以上或上传者本人可下载，其余返回 403。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token='
+      description: >-
+        已过审图片游客持签名链接即可下载；未过审图片仅审核员及以上或上传者本人可下载，其余返回 403。凭证可用 Authorization:
+        Bearer、koharu_token Cookie 或 ?access_token=
       operationId: ImageController_downloadOriginal
       parameters:
         - name: id
@@ -837,7 +850,7 @@ paths:
           in: query
           description: 过期时间戳 (毫秒)
           schema:
-            example: 1793190457184
+            example: 1793274223848
             type: string
         - name: access_token
           required: false
@@ -846,7 +859,9 @@ paths:
           schema: {}
       responses:
         '200':
-          description: '返回原图二进制流，Content-Type 为原图实际的 MIME，带 Content-Disposition: attachment 与 X-Content-MD5（供前端校验完整性）'
+          description: >-
+            返回原图二进制流，Content-Type 为原图实际的 MIME，带 Content-Disposition: attachment
+            与 X-Content-MD5（供前端校验完整性）
           content:
             image/jpeg:
               schema:
@@ -879,7 +894,9 @@ paths:
         - images
   /api/images/{id}:
     get:
-      description: 已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / uploaderIp / reviewedBy；md5 保留，供前端校验下载到的原图是否完整
+      description: >-
+        已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / uploaderIp /
+        reviewedBy；md5 保留，供前端校验下载到的原图是否完整
       operationId: ImageController_findOne
       parameters:
         - name: id
@@ -976,7 +993,10 @@ paths:
         - library
   /api/library/password:
     post:
-      description: 只有 admin / super_admin 能改。修改成功后立即生成新一代数据密钥并在后台把全部图片重加密成新密钥；重加密期间服务保持可用，进度见 GET /library/status。旧密码立即失效，新密码同时写入 adminInfo/info.json。
+      description: >-
+        只有 admin / super_admin
+        能改。修改成功后立即生成新一代数据密钥并在后台把全部图片重加密成新密钥；重加密期间服务保持可用，进度见 GET
+        /library/status。旧密码立即失效，新密码同时写入 adminInfo/info.json。
       operationId: LibraryController_changePassword
       parameters: []
       requestBody:
@@ -1016,7 +1036,9 @@ paths:
         - library
   /api/library/unlock:
     post:
-      description: 正常情况下服务启动时会用 adminInfo/info.json 里的图库密码自动解锁；只有密码文件缺失或被删时才需要手动解锁。锁定期间任何图片的读取、缩略图生成与上传都会返回 503。
+      description: >-
+        正常情况下服务启动时会用 adminInfo/info.json
+        里的图库密码自动解锁；只有密码文件缺失或被删时才需要手动解锁。锁定期间任何图片的读取、缩略图生成与上传都会返回 503。
       operationId: LibraryController_unlock
       parameters: []
       requestBody:
@@ -1073,6 +1095,100 @@ paths:
       summary: 手动解锁图库 (管理员及以上)
       tags:
         - library
+  /api/review-exemptions:
+    get:
+      description: 仅限管理员及以上角色访问。只列出被显式授予赦免的审核员；管理员及以上天然豁免，不出现在名单中。
+      operationId: ReviewExemptionController_findAll
+      parameters: []
+      responses:
+        '200':
+          description: 赦免名单
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReviewExemptionItemDto'
+                  total:
+                    type: number
+                    example: 1
+        '401':
+          description: 未提供有效的 Token
+        '403':
+          description: 权限不足：需要 ADMIN 及以上角色
+      security:
+        - bearer: []
+      summary: 获取自审赦免名单
+      tags:
+        - review-exemptions
+  /api/review-exemptions/{userId}:
+    post:
+      description: 仅限管理员及以上角色访问。加入后该审核员可以审核自己上传的图片与提交的头像。管理员及以上角色默认可审核自己的图片，无需加入。
+      operationId: ReviewExemptionController_grant
+      parameters:
+        - name: userId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '201':
+          description: 已加入赦免名单，返回该条目
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewExemptionItemDto'
+        '400':
+          description: 目标角色没有审核权限（USER / GUEST）
+        '401':
+          description: 未提供有效的 Token
+        '403':
+          description: 权限不足：需要 ADMIN 及以上角色
+        '404':
+          description: 用户不存在
+        '409':
+          description: 目标已是管理员及以上，或已在赦免名单中
+      security:
+        - bearer: []
+      summary: 将审核员加入自审赦免名单
+      tags:
+        - review-exemptions
+    delete:
+      description: 仅限管理员及以上角色访问。移出后该审核员恢复为「不能审核自己上传的图片 / 提交的头像」。
+      operationId: ReviewExemptionController_revoke
+      parameters:
+        - name: userId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 已移出赦免名单
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 已移出自审赦免名单
+        '400':
+          description: 目标是管理员及以上角色（本就豁免，不在名单中）
+        '401':
+          description: 未提供有效的 Token
+        '403':
+          description: 权限不足：需要 ADMIN 及以上角色
+        '404':
+          description: 用户不存在，或该用户不在赦免名单中
+      security:
+        - bearer: []
+      summary: 将审核员移出自审赦免名单
+      tags:
+        - review-exemptions
   /api/avatars/{userId}:
     post:
       description: 仅本人可提交，提交后进入待审核状态，审核通过后才会成为当前头像
@@ -1167,7 +1283,10 @@ paths:
         - avatars
   /api/avatars/{userId}/review:
     post:
-      description: approved 会替换当前头像；rejected 会作废投稿并回退到上一个头像。两种结果的响应形状一致，avatar 为 null 表示没有产生当前头像
+      description: >-
+        approved 会替换当前头像；rejected
+        会作废投稿并回退到上一个头像。默认不能审核自己提交的头像；管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样可以审核自己的头像。两种结果的响应形状一致，avatar
+        为 null 表示没有产生当前头像
       operationId: AvatarController_review
       parameters:
         - name: userId
@@ -1215,7 +1334,7 @@ paths:
         '400':
           description: 拒绝时必须提供原因，或审核状态非法
         '403':
-          description: 权限不足
+          description: 权限不足，或试图审核自己提交的头像且未获得自审赦免
         '404':
           description: 该用户没有待审核的头像
       security:
@@ -1304,7 +1423,9 @@ paths:
         - avatars
   /api/avatars/{userId}/pending/image:
     get:
-      description: '本人可看自己待审核的头像（提交后即刻预览），审核员及以上可看任意用户的；其余 403。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token='
+      description: >-
+        本人可看自己待审核的头像（提交后即刻预览），审核员及以上可看任意用户的；其余 403。凭证可用 Authorization:
+        Bearer、koharu_token Cookie 或 ?access_token=
       operationId: AvatarController_getPendingImage
       parameters:
         - name: userId
@@ -1888,8 +2009,9 @@ info:
     全局约定：所有接口统一前缀 `/api`；路径参数 `:id` / `:userId` 必须为 UUID，格式非法时直接返回 400，不会进入业务逻辑。
 
 
-    鉴权凭证支持三种携带方式，任选其一：`Authorization: Bearer <token>`、`koharu_token` Cookie（登录/刷新时下发，供 `<img>` / `<a download>` 等原生请求使用）、`?access_token=<token>` 查询参数（跨域导致 Cookie 不可用时）。带了凭证但已失效返回
-    401；完全不携带凭证时按游客处理（仅公开资源可用）。
+    鉴权凭证支持三种携带方式，任选其一：`Authorization: Bearer <token>`、`koharu_token`
+    Cookie（登录/刷新时下发，供 `<img>` / `<a download>` 等原生请求使用）、`?access_token=<token>`
+    查询参数（跨域导致 Cookie 不可用时）。带了凭证但已失效返回 401；完全不携带凭证时按游客处理（仅公开资源可用）。
   version: 0.1.0
   contact: {}
 tags:
@@ -2073,6 +2195,10 @@ components:
         emailVerified:
           type: boolean
           description: 邮箱是否已验证
+        reviewExempt:
+          type: boolean
+          description: 是否在自审赦免名单：为 true 的审核员可以审核自己上传的图片/提交的头像。管理员及以上天然豁免，不依赖此列
+          default: false
         avatar:
           description: 关联的头像信息
           nullable: true
@@ -2098,6 +2224,7 @@ components:
         - email
         - role
         - emailVerified
+        - reviewExempt
         - createdAt
         - updatedAt
     ChangePasswordDto:
@@ -2446,6 +2573,30 @@ components:
           example: Vt3nQ8xLk2pRw9a
       required:
         - password
+    ReviewExemptionItemDto:
+      type: object
+      properties:
+        userId:
+          type: string
+          description: 用户 ID (UUID)
+          example: 550e8400-e29b-41d4-a716-446655440000
+        username:
+          type: string
+          description: 用户名
+          example: koharu_moderator
+        role:
+          type: string
+          enum:
+            - SUPER_ADMIN
+            - ADMIN
+            - MODERATOR
+            - USER
+            - GUEST
+          description: 当前角色（被撤销审核员角色后仍留在名单中，但已无审核权限）
+      required:
+        - userId
+        - username
+        - role
     ReviewAvatarDto:
       type: object
       properties:

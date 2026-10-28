@@ -1,6 +1,6 @@
 # 03 · 接口参考
 
-本文按模块列出全部 **46 个操作**。机器可读版本见 [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml)（由运行中的服务导出，与本表同源）。
+本文按模块列出全部 **49 个操作**。机器可读版本见 [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml)（由运行中的服务导出，与本表同源）。
 
 - 接口前缀、UUID 要求、分页、错误体等全局约定见 [README.md](README.md#全局约定)。
 - 权限层级与矩阵见 [02-auth-and-permissions.md](02-auth-and-permissions.md)。
@@ -63,7 +63,7 @@
 | GET | `/api/images` | 公开 | `Paginated<ImageListItemDto>` |
 | GET | `/api/images/my` | USER+ | `Paginated<MyImageListItemDto>` |
 | GET | `/api/images/pending` | MODERATOR+ | `Paginated<PendingImageDto>` |
-| POST | `/api/images/{id}/review` | MODERATOR+ | `ImageResponseDto` |
+| POST | `/api/images/{id}/review` | MODERATOR+，自审受限（见 1.9） | `ImageResponseDto` |
 | POST | `/api/images/{id}/modify` | 上传者本人 | `{ message, image: ImageResponseDto }` |
 | GET | `/api/images/{id}` | 已过审公开 / 未过审见下 | `ImageResponseDto` |
 | GET | `/api/images/{id}/thumbnail` | 同上 | 二进制 `image/webp` 或 `image/jpeg` |
@@ -88,7 +88,7 @@
 |---|---|---|---|
 | GET | `/api/avatars/pending` | MODERATOR+ | `Paginated<PendingAvatar>` |
 | POST | `/api/avatars/{userId}` | 本人或管理员+ | `{ message, submission: { id, status, createdAt, imageUrl } }` |
-| POST | `/api/avatars/{userId}/review` | MODERATOR+ | `{ message, status, avatar }` |
+| POST | `/api/avatars/{userId}/review` | MODERATOR+，自审受限（见 1.9） | `{ message, status, avatar }` |
 | GET | `/api/avatars/{userId}/image` | 公开 | 二进制 |
 | GET | `/api/avatars/{userId}/pending/image` | 本人 或 MODERATOR+ | 二进制 |
 | DELETE | `/api/avatars/{userId}` | 本人或管理员+ | `{ message }` |
@@ -146,6 +146,24 @@
 - `POST /api/library/password` 的 body 是 `{ oldPassword, newPassword }`（新密码 8–128 字符）。成功后 `activeVersion` 加一，后台逐个把原图重新加密，期间服务照常读写。
 - `POST /api/library/unlock` 的 body 是 `{ password }`。进程重启后若 `adminInfo/info.json` 里没有可用密码（例如被清掉或换了机器），用它手工解锁。
 - 图库密码只有 `ADMIN` 及以上能改；密码本体只存在于 `adminInfo/info.json`（权限 `0600`），数据库里只有它的 bcrypt 哈希和「被密码包裹的数据密钥」。
+
+### 1.9 自审赦免 `/api/review-exemptions`
+
+「审核是他人复核」默认禁止审核自己上传的图片与提交的头像。`ADMIN` / `SUPER_ADMIN` 天然豁免（无需配置）；普通审核员需要由管理员显式加入赦免名单才能自审。
+
+| 方法 | 路径 | 权限 | 成功响应 |
+|---|---|---|---|
+| GET | `/api/review-exemptions` | ADMIN+ | `{ data: ReviewExemptionItemDto[], total }` |
+| POST | `/api/review-exemptions/{userId}` | ADMIN+ | `201` + `ReviewExemptionItemDto` |
+| DELETE | `/api/review-exemptions/{userId}` | ADMIN+ | `{ message }` |
+
+`ReviewExemptionItemDto`：`{ userId, username, role }`。
+
+- 名单只包含**被显式授予**的审核员；`ADMIN` / `SUPER_ADMIN` 天然豁免，不会出现在列表里。
+- `POST` 的 `{userId}` 是路径参数（UUID，格式非法直接 `400`）。目标不存在 → `404`；目标是 `ADMIN` 及以上 → `409`（本就豁免，无需加入）；目标角色是 `USER` / `GUEST`（没有审核权限）→ `400`；重复加入 → `409`。
+- `DELETE` 目标为 `ADMIN` 及以上 → `400`（默认豁免，名单里不会有）；不在名单 → `404`。
+- 加入/移出都会写审计日志，`action` 分别是 `POST /review-exemptions/:userId` 与 `DELETE /review-exemptions/:userId`。
+- 豁免同时作用于图片审核与头像审核：`POST /api/images/{id}/review`、`POST /api/avatars/{userId}/review` 的自审 `403` 对名单内审核员失效。
 
 ---
 
@@ -223,7 +241,7 @@
 
 | Schema | 字段 |
 |---|---|
-| `UserResponseDto` | `id`、`username`、`email`、`role`、`bio`、`emailVerified`、`avatar`（`UserAvatarDto \| null`）、`createdAt`、`updatedAt`、`deletedAt` |
+| `UserResponseDto` | `id`、`username`、`email`、`role`、`bio`、`emailVerified`、`reviewExempt`、`avatar`（`UserAvatarDto \| null`）、`createdAt`、`updatedAt`、`deletedAt` |
 | `UserListItemDto` | `id`、`username`、`email`、`role`、`bio`、`emailVerified`、`avatar`、`avatarUrl`、`createdAt`（**无** `updatedAt` / `deletedAt`） |
 | `UserAvatarDto` | `id`、`path`、`userId`、`createdAt` |
 
@@ -257,6 +275,7 @@
 |---|---|
 | `Tag` | `id`、`name`、`createdAt` |
 | `AuditLog` | `id`、`actorId`、`actorUsername`、`actorRole`、`action`、`method`、`path`、`statusCode`、`ip`、`userAgent`、`durationMs`、`detail`、`success`、`createdAt` |
+| `ReviewExemptionItemDto` | `userId`、`username`、`role` |
 
 `action` 形如 `POST /images/:id/review`（路由模板，不是真实路径）；`detail` 目前只在登录时写入 `{ username }`。
 

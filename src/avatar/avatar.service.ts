@@ -19,6 +19,7 @@ import { AvatarStatus } from '../enums/avatar-status.enum.js';
 import { canManageTarget, isStaff } from '../common/utils/role.util.js';
 import type { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface.js';
 import { API_PREFIX } from '../common/constants.js';
+import { ReviewExemptionService } from '../review/review-exemption.service.js';
 
 @Injectable()
 export class AvatarService {
@@ -32,6 +33,7 @@ export class AvatarService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private fileService: FileService,
+    private reviewExemption: ReviewExemptionService,
   ) {}
 
   async submit(userId: string, file: Express.Multer.File, currentUser: any): Promise<AvatarSubmission> {
@@ -58,7 +60,8 @@ export class AvatarService {
     return saved;
   }
 
-  async review(userId: string, status: AvatarStatus, reviewerId: string, reason?: string) {
+  async review(userId: string, status: AvatarStatus, currentUser: AuthenticatedUser, reason?: string) {
+    const reviewerId = currentUser.id;
     if (status === AvatarStatus.PENDING) {
       throw new BadRequestException('审核状态只能是 approved 或 rejected');
     }
@@ -70,8 +73,9 @@ export class AvatarService {
       throw new NotFoundException('该用户没有待审核的头像');
     }
 
-    // 审核是「他人复核」，不允许审核员给自己提交的头像下结论
-    if (pending.userId === reviewerId) {
+    // 审核是「他人复核」，默认不允许审核员给自己提交的头像下结论；
+    // 例外：管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样放行。
+    if (pending.userId === reviewerId && !(await this.reviewExemption.isSelfReviewExempt(reviewerId, currentUser.role))) {
       throw new ForbiddenException('不能审核自己提交的头像');
     }
 

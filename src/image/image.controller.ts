@@ -82,10 +82,13 @@ export class ImageController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, MinRoleGuard)
   @MinRole(Role.MODERATOR)
-  @ApiOperation({ summary: '审核图片 (审核员及以上)' })
+  @ApiOperation({
+    summary: '审核图片 (审核员及以上)',
+    description: '默认不能审核自己上传的图片；管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样可以审核自己的图片',
+  })
   @ApiOkResponse({ type: ImageResponseDto, description: '审核成功，返回更新后的图片信息' })
   @ApiResponse({ status: 400, description: '拒绝时必须提供原因，或审核状态非法' })
-  @ApiResponse({ status: 403, description: '权限不足' })
+  @ApiResponse({ status: 403, description: '权限不足，或试图审核自己上传的图片且未获得自审赦免' })
   @ApiResponse({ status: 404, description: '图片不存在' })
   @ApiResponse({ status: 409, description: '图片已是目标状态，或审核期间被其他审核员抢先处理' })
   async reviewImage(
@@ -93,7 +96,7 @@ export class ImageController {
     @Body() dto: ReviewImageDto,
     @Req() req: any,
   ) {
-    return this.imageService.reviewImage(id, dto.status, req.user.id, dto.reason);
+    return this.imageService.reviewImage(id, dto.status, req.user, dto.reason);
   }
 
   @Post(':id/modify')

@@ -7,13 +7,13 @@
 | 文件 | 内容 | 适合谁看 |
 |---|---|---|
 | [01-architecture.md](01-architecture.md) | 分层、模块依赖、请求生命周期、审核状态机、文件存储 | 接手代码之前 |
-| [02-auth-and-permissions.md](02-auth-and-permissions.md) | 角色层级、权限矩阵、令牌、登录频控、游客可见性、不可自审 | 接前端鉴权之前 |
-| [03-api.md](03-api.md) | 46 个操作的端点表、请求/响应 DTO 字段、错误码、curl 示例 | 对接接口时 |
+| [02-auth-and-permissions.md](02-auth-and-permissions.md) | 角色层级、权限矩阵、令牌、登录频控、游客可见性、自审限制与赦免名单 | 接前端鉴权之前 |
+| [03-api.md](03-api.md) | 49 个操作的端点表、请求/响应 DTO 字段、错误码、curl 示例 | 对接接口时 |
 | [04-data-model.md](04-data-model.md) | 8 张实体表 + 2 张关联表的字段、枚举、索引与级联 | 改表结构之前 |
 | [05-config-and-deploy.md](05-config-and-deploy.md) | `configs/config.yaml` 全键说明、构建、启动、日志、图库密码运维、定时任务 | 部署时 |
 | [06-errors.md](06-errors.md) | 统一错误体、状态码语义、各端点错误速查、客户端重试建议 | 写错误处理时 |
 | [07-changes.md](07-changes.md) | 近期改动清单（新增接口、行为变更、修复的缺陷） | 升级已有客户端时 |
-| [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml) | 机器可读的 OpenAPI 3.0 规格，46 个操作 / 28 个 schema | 生成 SDK、导入 Postman |
+| [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml) | 机器可读的 OpenAPI 3.0 规格，49 个操作 / 29 个 schema | 生成 SDK、导入 Postman |
 
 `openapi.json` 是从运行中的服务导出的规格（`GET /api-doc-json`），不是手写。它和 Swagger UI（`/api-doc`）同源，所以**接口有变动时这两个文件要一起重新导出**，见文末。
 
@@ -59,6 +59,7 @@ src/
 ├── user/                    用户 CRUD、角色变更、密码修改
 ├── image/                   图库：上传、改稿、审核、列表、缩略图、签名下载
 ├── avatar/                  头像投稿、审核、图片流
+├── review/                  自审赦免名单（管理员把审核员加进名单后即可自审）
 ├── album/                   图集与标签
 ├── audit/                   全局审计拦截器 + 日志查询
 ├── cleanup/                 定时硬删过期软删用户
@@ -97,10 +98,11 @@ uploads/                     原图、头像、缩略图缓存
 |---|---|---|
 | 找待审图片 id | `GET /api/images/pending` | MODERATOR+ |
 | 看待审图片 | `GET /api/images/{id}/thumbnail` | MODERATOR+、上传者本人 |
-| 审 | `POST /api/images/{id}/review` | MODERATOR+（不能审自己的） |
+| 审 | `POST /api/images/{id}/review` | MODERATOR+（不能审自己的，ADMIN+ 与赦免名单内除外） |
 | 找待审头像 | `GET /api/avatars/pending` | MODERATOR+ |
 | 看待审头像 | `GET /api/avatars/{userId}/pending/image` | MODERATOR+ |
-| 审头像 | `POST /api/avatars/{userId}/review` | MODERATOR+（不能审自己的） |
+| 审头像 | `POST /api/avatars/{userId}/review` | MODERATOR+（不能审自己的，ADMIN+ 与赦免名单内除外） |
+| 加/撤自审赦免 | `POST` / `DELETE /api/review-exemptions/{userId}` | ADMIN+（名单见 `GET /api/review-exemptions`） |
 
 `GET /images/pending` 是审核台的入口；`GET /images?status=pending` 是同一份数据的通用筛选入口，区别是前者固定按上传时间正序（先来先审）并附带上传者用户名。
 
@@ -117,7 +119,7 @@ node -e "const y=require('js-yaml'),f=require('fs');f.writeFileSync('docs/openap
 
 `docs/openapi.json` 导出时带 UTF-8 BOM，解析前记得去掉（上面的命令已经处理）。
 
-导出的规格目前是 **35 个 path / 46 个 operation / 28 个 schema**，`components.securitySchemes` 含 `bearer` 与 `koharu_token` 两套（Cookie 鉴权），图片流接口另外声明了可选的 `?access_token=` 参数。手工改完 controller / DTO 后可以这样快速核对规模有没有意外变化：
+导出的规格目前是 **37 个 path / 49 个 operation / 29 个 schema**，`components.securitySchemes` 含 `bearer` 与 `koharu_token` 两套（Cookie 鉴权），图片流接口另外声明了可选的 `?access_token=` 参数。手工改完 controller / DTO 后可以这样快速核对规模有没有意外变化：
 
 ```bash
 node -e "const s=require('./docs/openapi.json');const ops=Object.values(s.paths).reduce((n,p)=>n+Object.keys(p).filter(k=>['get','post','patch','put','delete'].includes(k)).length,0);console.log(Object.keys(s.paths).length,'paths /',ops,'ops /',Object.keys(s.components.schemas).length,'schemas')"

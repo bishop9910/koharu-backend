@@ -29,6 +29,7 @@ audit_logs 独立表，无外键（保存操作者快照，避免用户改名/�
 | `role` | enum | 默认 `USER` | 见 §3 |
 | `bio` | varchar(500) | 可空 | |
 | `emailVerified` | boolean | 默认 `true` | 当前无邮件验证流程，注册即视为已验证 |
+| `reviewExempt` | boolean | 默认 `false` | 是否在自审赦免名单：`true` 的审核员可以审核自己上传的图片/提交的头像。`ADMIN` 及以上天然豁免，不依赖此列 |
 | `avatar` | — | OneToOne | 虚拟关系，实际列在 `avatars`（见 2.3） |
 | `createdAt` | timestamp | | `@CreateDateColumn` |
 | `updatedAt` | timestamp | | `@UpdateDateColumn` |
@@ -182,6 +183,10 @@ audit_logs 独立表，无外键（保存操作者快照，避免用户改名/�
 `configs/config.yaml` 的 `database.postgres.synchronize` 在本地为 `true`，**生产必须是 `false`**。仓库里没有迁移文件，因此：
 
 - 新增可空列（如给 `avatar_submissions` 加 `rejectReason`）需要手写 `ALTER TABLE`。
-- 新增非空列必须带 `DEFAULT`，否则已有行会失败。
+- 新增非空列必须带 `DEFAULT`，否则已有行会失败。`users.reviewExempt`（自审赦免标记）就是这类列，上线时执行：
+  ```sql
+  ALTER TABLE users ADD COLUMN "reviewExempt" boolean NOT NULL DEFAULT false;
+  ```
+  `DEFAULT false` 让存量用户全部保持「不能自审」，管理员及以上不依赖该列、自然豁免。
 - 修改枚举值（Postgres enum）需要 `ALTER TYPE ... ADD VALUE`，且不能在事务块里执行（旧版本限制）。
 - 新增外键（如 `avatar_submissions.userId → users.id`）会因历史脏数据失败，先跑一遍 `SELECT` 校验。

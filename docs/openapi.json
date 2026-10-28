@@ -836,6 +836,7 @@
     },
     "/api/images/{id}/review": {
       "post": {
+        "description": "默认不能审核自己上传的图片；管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样可以审核自己的图片",
         "operationId": "ImageController_reviewImage",
         "parameters": [
           {
@@ -872,7 +873,7 @@
             "description": "拒绝时必须提供原因，或审核状态非法"
           },
           "403": {
-            "description": "权限不足"
+            "description": "权限不足，或试图审核自己上传的图片且未获得自审赦免"
           },
           "404": {
             "description": "图片不存在"
@@ -1279,7 +1280,7 @@
             "in": "query",
             "description": "过期时间戳 (毫秒)",
             "schema": {
-              "example": 1793190457184,
+              "example": 1793274223848,
               "type": "string"
             }
           },
@@ -1641,6 +1642,157 @@
         ]
       }
     },
+    "/api/review-exemptions": {
+      "get": {
+        "description": "仅限管理员及以上角色访问。只列出被显式授予赦免的审核员；管理员及以上天然豁免，不出现在名单中。",
+        "operationId": "ReviewExemptionController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "赦免名单",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ReviewExemptionItemDto"
+                      }
+                    },
+                    "total": {
+                      "type": "number",
+                      "example": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "权限不足：需要 ADMIN 及以上角色"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取自审赦免名单",
+        "tags": [
+          "review-exemptions"
+        ]
+      }
+    },
+    "/api/review-exemptions/{userId}": {
+      "post": {
+        "description": "仅限管理员及以上角色访问。加入后该审核员可以审核自己上传的图片与提交的头像。管理员及以上角色默认可审核自己的图片，无需加入。",
+        "operationId": "ReviewExemptionController_grant",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "已加入赦免名单，返回该条目",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewExemptionItemDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "目标角色没有审核权限（USER / GUEST）"
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "权限不足：需要 ADMIN 及以上角色"
+          },
+          "404": {
+            "description": "用户不存在"
+          },
+          "409": {
+            "description": "目标已是管理员及以上，或已在赦免名单中"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "将审核员加入自审赦免名单",
+        "tags": [
+          "review-exemptions"
+        ]
+      },
+      "delete": {
+        "description": "仅限管理员及以上角色访问。移出后该审核员恢复为「不能审核自己上传的图片 / 提交的头像」。",
+        "operationId": "ReviewExemptionController_revoke",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "已移出赦免名单",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "已移出自审赦免名单"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "目标是管理员及以上角色（本就豁免，不在名单中）"
+          },
+          "401": {
+            "description": "未提供有效的 Token"
+          },
+          "403": {
+            "description": "权限不足：需要 ADMIN 及以上角色"
+          },
+          "404": {
+            "description": "用户不存在，或该用户不在赦免名单中"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "将审核员移出自审赦免名单",
+        "tags": [
+          "review-exemptions"
+        ]
+      }
+    },
     "/api/avatars/{userId}": {
       "post": {
         "description": "仅本人可提交，提交后进入待审核状态，审核通过后才会成为当前头像",
@@ -1787,7 +1939,7 @@
     },
     "/api/avatars/{userId}/review": {
       "post": {
-        "description": "approved 会替换当前头像；rejected 会作废投稿并回退到上一个头像。两种结果的响应形状一致，avatar 为 null 表示没有产生当前头像",
+        "description": "approved 会替换当前头像；rejected 会作废投稿并回退到上一个头像。默认不能审核自己提交的头像；管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样可以审核自己的头像。两种结果的响应形状一致，avatar 为 null 表示没有产生当前头像",
         "operationId": "AvatarController_review",
         "parameters": [
           {
@@ -1857,7 +2009,7 @@
             "description": "拒绝时必须提供原因，或审核状态非法"
           },
           "403": {
-            "description": "权限不足"
+            "description": "权限不足，或试图审核自己提交的头像且未获得自审赦免"
           },
           "404": {
             "description": "该用户没有待审核的头像"
@@ -3135,6 +3287,11 @@
             "type": "boolean",
             "description": "邮箱是否已验证"
           },
+          "reviewExempt": {
+            "type": "boolean",
+            "description": "是否在自审赦免名单：为 true 的审核员可以审核自己上传的图片/提交的头像。管理员及以上天然豁免，不依赖此列",
+            "default": false
+          },
           "avatar": {
             "description": "关联的头像信息",
             "nullable": true,
@@ -3168,6 +3325,7 @@
           "email",
           "role",
           "emailVerified",
+          "reviewExempt",
           "createdAt",
           "updatedAt"
         ]
@@ -3614,6 +3772,37 @@
         },
         "required": [
           "password"
+        ]
+      },
+      "ReviewExemptionItemDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "用户 ID (UUID)",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "username": {
+            "type": "string",
+            "description": "用户名",
+            "example": "koharu_moderator"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "ADMIN",
+              "MODERATOR",
+              "USER",
+              "GUEST"
+            ],
+            "description": "当前角色（被撤销审核员角色后仍留在名单中，但已无审核权限）"
+          }
+        },
+        "required": [
+          "userId",
+          "username",
+          "role"
         ]
       },
       "ReviewAvatarDto": {

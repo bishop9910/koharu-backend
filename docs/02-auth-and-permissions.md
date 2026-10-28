@@ -77,7 +77,7 @@
 | `GET /api/images/my` | USER+（只返回本人的） |
 | `POST /api/images/{id}/modify` | 本人，且 `editCount = 0` |
 | `GET /api/images/pending` | MODERATOR+ |
-| `POST /api/images/{id}/review` | MODERATOR+，且不能是上传者本人 |
+| `POST /api/images/{id}/review` | MODERATOR+，且不能是上传者本人（ADMIN+ 与该审核员在自审赦免名单内时除外） |
 | `DELETE /api/images/{id}` | 本人 或 `canManageTarget` |
 
 ### 头像
@@ -89,7 +89,7 @@
 | `DELETE /api/avatars/{userId}` | 本人 或 `canManageTarget` |
 | `GET /api/avatars/pending` | MODERATOR+ |
 | `GET /api/avatars/{userId}/pending/image` | 本人 或 MODERATOR+（本人要能预览自己刚提交的图） |
-| `POST /api/avatars/{userId}/review` | MODERATOR+，且不能审自己 |
+| `POST /api/avatars/{userId}/review` | MODERATOR+，且不能审自己（ADMIN+ 或已在自审赦免名单内时除外） |
 
 ### 图集与标签
 
@@ -122,6 +122,23 @@
 | `POST /api/library/unlock` | **ADMIN+** |
 
 `MODERATOR` 能审核图片，但**不能**碰图库密码：它是整个图库的加密根，泄露等于泄露全部原图。
+
+### 自审赦免名单
+
+「审核是他人复核」这条规则默认也把管理员拦住了，实际运营中管理员常常需要处理自己上传的图片。为此有两条放行途径：
+
+| 途径 | 范围 | 说明 |
+|---|---|---|
+| 角色天然豁免 | ADMIN / SUPER_ADMIN | 不需要任何配置，直接可以审核自己上传的图片 / 自己提交的头像 |
+| 自审赦免名单 | 被显式授予的 MODERATOR | 由 ADMIN+ 通过下面的接口把某个审核员加进名单，该审核员即可审自己的图；随时可以移出 |
+
+| 接口 | 权限 |
+|---|---|
+| `GET /api/review-exemptions` | ADMIN+，返回 `{ data, total }`，只列**显式授予**的审核员（管理员天然豁免，不会出现在名单里） |
+| `POST /api/review-exemptions/{userId}` | ADMIN+，把审核员加入名单；目标已是 ADMIN+ → 409（本就豁免），目标没有审核权限（USER / GUEST）→ 400，重复加入 → 409 |
+| `DELETE /api/review-exemptions/{userId}` | ADMIN+，移出名单；目标是 ADMIN+ → 400，不在名单 → 404 |
+
+名单落在 `users.reviewExempt` 布尔列上（见 [04-data-model.md](04-data-model.md)），授予/移除都会进审计日志（`action` 为 `POST /review-exemptions/:userId` 等）。
 
 ## 登录与令牌
 
@@ -216,7 +233,7 @@ refresh token 无效或过期返回 401，此时只能重新登录。
 
 | 规则 | 结果 |
 |---|---|
-| 审核员审核自己上传的图片 / 自己提交的头像 | 403 |
+| 审核员审核自己上传的图片 / 自己提交的头像 | 403（ADMIN+ 天然豁免；MODERATOR 被加入自审赦免名单后放行） |
 | 已过审图片再审核成 `approved` | 409（无需重复审核） |
 | 两个审核员同时审同一张图，后提交者 | 409（状态已被变更） |
 | `rejected` 不带 `reason` | 400 |

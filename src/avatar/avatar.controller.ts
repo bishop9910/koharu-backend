@@ -100,7 +100,7 @@ export class AvatarController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, MinRoleGuard)
   @MinRole(Role.MODERATOR)
-  @ApiOperation({ summary: '审核头像 (审核员及以上)', description: 'approved 会替换当前头像；rejected 会作废投稿并回退到上一个头像。两种结果的响应形状一致，avatar 为 null 表示没有产生当前头像' })
+  @ApiOperation({ summary: '审核头像 (审核员及以上)', description: 'approved 会替换当前头像；rejected 会作废投稿并回退到上一个头像。默认不能审核自己提交的头像；管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样可以审核自己的头像。两种结果的响应形状一致，avatar 为 null 表示没有产生当前头像' })
   @ApiOkResponse({
     description: '审核完成',
     schema: {
@@ -122,14 +122,14 @@ export class AvatarController {
     },
   })
   @ApiResponse({ status: 400, description: '拒绝时必须提供原因，或审核状态非法' })
-  @ApiResponse({ status: 403, description: '权限不足' })
+  @ApiResponse({ status: 403, description: '权限不足，或试图审核自己提交的头像且未获得自审赦免' })
   @ApiResponse({ status: 404, description: '该用户没有待审核的头像' })
   async review(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() dto: ReviewAvatarDto,
     @Req() req: any,
   ) {
-    return this.avatarService.review(userId, dto.status, req.user.id, dto.reason);
+    return this.avatarService.review(userId, dto.status, req.user, dto.reason);
   }
 
   @Get('pending')

@@ -16,6 +16,7 @@ import { AuditModule } from './audit/audit.module.js';
 import { AlbumModule } from './album/album.module.js';
 import { CleanupModule } from './cleanup/cleanup.module.js';
 import { LibraryModule } from './library/library.module.js';
+import { ReviewExemptionModule } from './review/review-exemption.module.js';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { LibraryModule } from './library/library.module.js';
       AuditModule,
       AlbumModule,
       CleanupModule,
+      ReviewExemptionModule,
       SeedModule
     ],
   controllers: [AppController],

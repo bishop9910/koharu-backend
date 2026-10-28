@@ -27,6 +27,8 @@ import { ImageResponseDto } from './dto/image-response.dto.js';
 import { ImageListItemDto } from './dto/image-list-item.dto.js';
 import { API_PREFIX } from '../common/constants.js';
 import { LibraryCryptoService } from '../library/library-crypto.service.js';
+import { ReviewExemptionService } from '../review/review-exemption.service.js';
+import type { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface.js';
 
 @Injectable()
 export class ImageService {
@@ -41,6 +43,7 @@ export class ImageService {
     private imageRepository: Repository<Image>,
     private fileService: FileService,
     private libraryCrypto: LibraryCryptoService,
+    private reviewExemption: ReviewExemptionService,
     private configService: ConfigService,
   ) {
     this.cacheDir = this.resolveCacheDir();
@@ -156,7 +159,13 @@ export class ImageService {
     return this.toDetailDto(await this.imageRepository.save(image));
   }
 
-  async reviewImage(imageId: string, status: ImageStatus, reviewerId: string, reason?: string): Promise<ImageResponseDto> {
+  async reviewImage(
+    imageId: string,
+    status: ImageStatus,
+    currentUser: AuthenticatedUser,
+    reason?: string,
+  ): Promise<ImageResponseDto> {
+    const reviewerId = currentUser.id;
     const image = await this.imageRepository.findOne({ where: { id: imageId } });
     if (!image) throw new NotFoundException('图片不存在');
 
@@ -172,8 +181,9 @@ export class ImageService {
       throw new ConflictException(`该图片已经是 ${status} 状态，无需重复审核`);
     }
 
-    // 审核是「他人复核」，不允许审核员给自己上传的图片下结论
-    if (image.userId === reviewerId) {
+    // 审核是「他人复核」，默认不允许审核员给自己上传的图片下结论；
+    // 例外：管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样放行。
+    if (image.userId === reviewerId && !(await this.reviewExemption.isSelfReviewExempt(reviewerId, currentUser.role))) {
       throw new ForbiddenException('不能审核自己上传的图片');
     }
 
