@@ -110,7 +110,7 @@ SUPER_ADMIN > ADMIN > MODERATOR > USER > GUEST
 ### 1. 环境准备
 
 - [Node.js](https://nodejs.org/)（推荐 v20.x 或 v22.x）
-- [pnpm](https://pnpm.io/)（`npm install -g pnpm`）
+- [pnpm](https://pnpm.io/)（`npx get-pnpm`）
 - [PostgreSQL](https://www.postgresql.org/)（推荐 v15+）
 
 ### 2. 安装依赖
