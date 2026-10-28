@@ -1,6 +1,6 @@
 # Koharu 后端文档
 
-图库后端服务，NestJS 12 + TypeORM + PostgreSQL，版本 `0.0.2`。全部业务接口统一挂在 `/api` 前缀下。
+图库后端服务，NestJS 12 + TypeORM + PostgreSQL，版本 `0.1.0`。全部业务接口统一挂在 `/api` 前缀下。
 
 ## 文档索引
 
