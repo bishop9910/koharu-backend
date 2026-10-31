@@ -52,6 +52,12 @@ export const default_config = {
       window_ms: 15 * 60 * 1000,            // 失败计数窗口, 15 分钟
       block_ms: 15 * 60 * 1000,             // 触发后封禁时长, 15 分钟
     },
+    reauth: {
+      ttl_ms: 5 * 60 * 1000,                // 再认证票据有效期, 5 分钟
+      max_failures: 5,                      // 同一用户再认证失败次数（独立计数桶，不影响登录频控）
+      ip_max_failures: 20,                  // 同一 IP 再认证失败次数
+      // 计数窗口与封禁时长复用 auth.login_throttle.window_ms / block_ms
+    },
   },
 }
 

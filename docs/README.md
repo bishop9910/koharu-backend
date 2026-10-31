@@ -8,12 +8,12 @@
 |---|---|---|
 | [01-architecture.md](01-architecture.md) | 分层、模块依赖、请求生命周期、审核状态机、文件存储 | 接手代码之前 |
 | [02-auth-and-permissions.md](02-auth-and-permissions.md) | 角色层级、权限矩阵、令牌、登录频控、游客可见性、自审限制与赦免名单 | 接前端鉴权之前 |
-| [03-api.md](03-api.md) | 49 个操作的端点表、请求/响应 DTO 字段、错误码、curl 示例 | 对接接口时 |
+| [03-api.md](03-api.md) | 50 个操作的端点表、请求/响应 DTO 字段、错误码、curl 示例 | 对接接口时 |
 | [04-data-model.md](04-data-model.md) | 8 张实体表 + 2 张关联表的字段、枚举、索引与级联 | 改表结构之前 |
 | [05-config-and-deploy.md](05-config-and-deploy.md) | `configs/config.yaml` 全键说明、构建、启动、日志、图库密码运维、定时任务 | 部署时 |
 | [06-errors.md](06-errors.md) | 统一错误体、状态码语义、各端点错误速查、客户端重试建议 | 写错误处理时 |
 | [07-changes.md](07-changes.md) | 近期改动清单（新增接口、行为变更、修复的缺陷） | 升级已有客户端时 |
-| [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml) | 机器可读的 OpenAPI 3.0 规格，49 个操作 / 29 个 schema | 生成 SDK、导入 Postman |
+| [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml) | 机器可读的 OpenAPI 3.0 规格，50 个操作 / 30 个 schema | 生成 SDK、导入 Postman |
 
 `openapi.json` 是从运行中的服务导出的规格（`GET /api-doc-json`），不是手写。它和 Swagger UI（`/api-doc`）同源，所以**接口有变动时这两个文件要一起重新导出**，见文末。
 
@@ -117,9 +117,9 @@ curl -s http://localhost:3000/api-doc-json -o docs/openapi.json
 node -e "const y=require('js-yaml'),f=require('fs');f.writeFileSync('docs/openapi.yaml',y.dump(JSON.parse(f.readFileSync('docs/openapi.json','utf8').replace(/^\uFEFF/,'')),{lineWidth:200}))"
 ```
 
-`docs/openapi.json` 导出时带 UTF-8 BOM，解析前记得去掉（上面的命令已经处理）。
+`docs/openapi.json` 由 Nest 直接输出为无 BOM 的 UTF-8；如果经过 PowerShell 转发或另存，可能被加上 BOM，解析前统一去掉（上面的命令已经处理）。
 
-导出的规格目前是 **37 个 path / 49 个 operation / 29 个 schema**，`components.securitySchemes` 含 `bearer` 与 `koharu_token` 两套（Cookie 鉴权），图片流接口另外声明了可选的 `?access_token=` 参数。手工改完 controller / DTO 后可以这样快速核对规模有没有意外变化：
+导出的规格目前是 **38 个 path / 50 个 operation / 30 个 schema**，`components.securitySchemes` 含 `bearer` 与 `koharu_token` 两套（Cookie 鉴权），图片流接口另外声明了可选的 `?access_token=` 参数。手工改完 controller / DTO 后可以这样快速核对规模有没有意外变化：
 
 ```bash
 node -e "const s=require('./docs/openapi.json');const ops=Object.values(s.paths).reduce((n,p)=>n+Object.keys(p).filter(k=>['get','post','patch','put','delete'].includes(k)).length,0);console.log(Object.keys(s.paths).length,'paths /',ops,'ops /',Object.keys(s.components.schemas).length,'schemas')"

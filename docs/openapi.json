@@ -154,6 +154,94 @@
         ]
       }
     },
+    "/api/auth/verify-password": {
+      "post": {
+        "description": "必须携带有效 Access Token，只能校验当前登录账号自己的密码（身份取自 Token，不接受用户名）。校验通过返回短期有效的再认证票据 reauthToken，再调用敏感接口时放进 X-Reauth-Token 请求头；密码错误返回 400，失败次数过多返回 429（独立于登录频控，可通过 auth.reauth 配置）。",
+        "operationId": "AuthController_verifyPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "密码正确，返回再认证票据",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "reauthToken": {
+                      "type": "string",
+                      "description": "短期再认证票据，放进 X-Reauth-Token 请求头"
+                    },
+                    "expiresIn": {
+                      "type": "number",
+                      "description": "票据有效期（毫秒）",
+                      "example": 300000
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "密码错误，或密码解密失败"
+          },
+          "401": {
+            "description": "未提供有效的 Access Token"
+          },
+          "429": {
+            "description": "再认证失败次数过多，请稍后重试",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "number",
+                      "example": 429
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "密码验证失败次数过多，请 892 秒后再试"
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Too Many Requests"
+                    },
+                    "retryAfterMs": {
+                      "type": "number",
+                      "description": "距离可以再次尝试的毫秒数",
+                      "example": 891540
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "校验当前账号密码（敏感操作前再认证）",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/auth/refresh": {
       "post": {
         "description": "当 Access Token 过期时，使用有效的 Refresh Token 换取新的 Access Token，无需重新登录",
@@ -354,9 +442,19 @@
     },
     "/api/users/me/password": {
       "patch": {
-        "description": "必须提供正确的旧密码",
+        "description": "需先调用 POST /api/auth/verify-password 校验当前密码，拿到再认证票据后放进 X-Reauth-Token；本接口不再接收旧密码。",
         "operationId": "UserController_changePassword",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "X-Reauth-Token",
+            "in": "header",
+            "description": "来自 POST /api/auth/verify-password 的短期再认证票据",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -385,10 +483,10 @@
             }
           },
           "400": {
-            "description": "原密码错误 或 新密码不符合长度要求"
+            "description": "新密码不符合长度要求，或密码解密失败"
           },
           "401": {
-            "description": "未提供有效的 Token"
+            "description": "未提供有效的 Token，或再认证票据缺失/无效/已过期"
           }
         },
         "security": [
@@ -577,13 +675,22 @@
         ]
       },
       "delete": {
-        "description": "只能删除自己，或由上级角色删除下级用户。会联动删除头像文件。",
+        "description": "敏感操作：需先在 X-Reauth-Token 中携带有效的再认证票据。只能删除自己，或由上级角色删除下级用户。会联动删除头像文件。",
         "operationId": "UserController_remove",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Reauth-Token",
+            "in": "header",
+            "description": "删除账号属于敏感操作，需先调用 POST /api/auth/verify-password 获取再认证票据",
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -607,7 +714,7 @@
             }
           },
           "401": {
-            "description": "未提供有效的 Token"
+            "description": "未提供有效的 Token，或再认证票据缺失/无效/已过期"
           },
           "403": {
             "description": "无权删除该用户"
@@ -629,13 +736,22 @@
     },
     "/api/users/{id}/role": {
       "patch": {
-        "description": "超级管理员可授予 ADMIN/MODERATOR/USER/GUEST；管理员可授予 MODERATOR/USER/GUEST；审核员可授予 USER/GUEST",
+        "description": "敏感操作：需先在 X-Reauth-Token 中携带有效的再认证票据。超级管理员可授予 ADMIN/MODERATOR/USER/GUEST；管理员可授予 MODERATOR/USER/GUEST；审核员可授予 USER/GUEST",
         "operationId": "UserController_updateRole",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Reauth-Token",
+            "in": "header",
+            "description": "修改角色属于敏感操作，需先调用 POST /api/auth/verify-password 获取再认证票据",
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -663,7 +779,7 @@
             }
           },
           "401": {
-            "description": "未提供有效的 Token"
+            "description": "未提供有效的 Token，或再认证票据缺失/无效/已过期"
           },
           "403": {
             "description": "无权修改该用户的角色"
@@ -1280,7 +1396,7 @@
             "in": "query",
             "description": "过期时间戳 (毫秒)",
             "schema": {
-              "example": 1793274223848,
+              "example": 1793544227172,
               "type": "string"
             }
           },
@@ -3110,6 +3226,25 @@
           "password"
         ]
       },
+      "VerifyPasswordDto": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "description": "当前账号的密码。未加密时为明文，encrypted=true 时为 RSA-OAEP(SHA-256) 加密后的 base64",
+            "example": "Admin@123456"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "description": "password 是否已使用 /auth/public-key 返回的公钥加密",
+            "example": true,
+            "default": false
+          }
+        },
+        "required": [
+          "password"
+        ]
+      },
       "RefreshTokenDto": {
         "type": "object",
         "properties": {
@@ -3333,11 +3468,6 @@
       "ChangePasswordDto": {
         "type": "object",
         "properties": {
-          "oldPassword": {
-            "type": "string",
-            "description": "当前旧密码（明文或 RSA-OAEP 加密后的 base64）",
-            "example": "OldPassword123"
-          },
           "newPassword": {
             "type": "string",
             "description": "新密码（明文或 RSA-OAEP 加密后的 base64，至少6个字符）",
@@ -3345,13 +3475,12 @@
           },
           "encrypted": {
             "type": "boolean",
-            "description": "oldPassword / newPassword 是否已使用 /auth/public-key 返回的公钥加密",
+            "description": "newPassword 是否已使用 /auth/public-key 返回的公钥加密",
             "example": true,
             "default": false
           }
         },
         "required": [
-          "oldPassword",
           "newPassword"
         ]
       },

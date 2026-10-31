@@ -302,7 +302,6 @@ export class UserService {
 
   async changePassword(
     userId: string,
-    oldPassword: string,
     newPassword: string,
     encrypted = false,
   ): Promise<{ message: string }> {
@@ -311,23 +310,16 @@ export class UserService {
       throw new NotFoundException('用户不存在');
     }
 
-    const plainOldPassword = this.decryptPassword(oldPassword, encrypted);
     const plainNewPassword = this.decryptPassword(newPassword, encrypted);
     if (plainNewPassword.length < 6) {
       throw new BadRequestException('新密码至少需要6个字符');
-    }
-
-    const isMatch = await bcrypt.compare(plainOldPassword, user.password);
-    if (!isMatch) {
-      this.logger.warn(`用户 ${user.username} 尝试修改密码失败：旧密码错误`);
-      throw new BadRequestException('原密码错误');
     }
 
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(plainNewPassword, salt);
     await this.userRepository.save(user);
 
-    this.logger.log(`用户 ${user.username} 成功修改了密码`);
+    this.logger.log(`用户 ${user.username} 成功修改了密码（已通过再认证）`);
     return { message: '密码修改成功' };
   }
 

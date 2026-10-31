@@ -50,6 +50,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('无效的令牌');
     }
 
+    // 再认证票据、刷新令牌与访问令牌共用签名密钥，必须靠 purpose 区分；
+    // 旧版本令牌没有 purpose 字段，仍按 access 兼容。
+    if (payload.purpose && payload.purpose !== 'access') {
+      throw new UnauthorizedException('该令牌不能作为访问令牌使用');
+    }
+
     const user = await this.userService.findByIdForAuth(payload.sub);
     if (!user) {
       throw new UnauthorizedException('用户不存在或已被删除');

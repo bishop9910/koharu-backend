@@ -1,6 +1,6 @@
 # 03 · 接口参考
 
-本文按模块列出全部 **49 个操作**。机器可读版本见 [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml)（由运行中的服务导出，与本表同源）。
+本文按模块列出全部 **50 个操作**。机器可读版本见 [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml)（由运行中的服务导出，与本表同源）。
 
 - 接口前缀、UUID 要求、分页、错误体等全局约定见 [README.md](README.md#全局约定)。
 - 权限层级与矩阵见 [02-auth-and-permissions.md](02-auth-and-permissions.md)。
@@ -23,19 +23,22 @@
 | GET | `/api/auth/public-key` | 公开 | `{ publicKey: string }` | RSA 公钥（PEM），用于登录/改密时加密密码 |
 | POST | `/api/auth/login` | 公开 | `LoginResponse` | 失败次数超额返回 `429`（含 `retryAfterMs`） |
 | POST | `/api/auth/refresh` | 公开 | `{ accessToken, expiresIn }` | 用 refreshToken 换新的 access token |
+| POST | `/api/auth/verify-password` | USER+（本人） | `{ valid: true, reauthToken, expiresIn }` | 再认证：验当前账号密码，返回短期再认证票据；密码错误 `400`，失败超限 `429` |
 
 `LoginResponse`：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `accessToken` | string | JWT，HS256，payload 只有 `{ sub, iat, exp }` |
-| `refreshToken` | string | 独立密钥签发的刷新令牌 |
+| `accessToken` | string | JWT，HS256，payload `{ sub, purpose: "access", iat, exp }` |
+| `refreshToken` | string | 同一密钥签发，payload `{ sub, purpose: "refresh", iat, exp }` |
 | `expiresIn` | number | access token 有效期，**毫秒**（默认 `86400000`） |
 | `user.id` | string(uuid) | |
 | `user.username` | string | 用户名快照 |
 | `user.role` | string | 角色快照，**全大写**：`SUPER_ADMIN` / `ADMIN` / `MODERATOR` / `USER` / `GUEST` |
 
 > `user.role` 只是给前端做初始渲染用的快照。服务端每次请求都回库取角色（见 [01-architecture.md](01-architecture.md#鉴权链)），改角色后无需重新登录也能立即生效。
+
+**再认证（`POST /api/auth/verify-password`）**：请求体 `{ password, encrypted? }`，身份只取自 Access Token（不接受用户名，天然只能验自己）。成功返回的 `reauthToken` 默认 **5 分钟**有效（`auth.reauth.ttl_ms`），调用敏感接口时放进 `X-Reauth-Token` 请求头；它带 `purpose: "reauth"`，不能被当作 Access Token 或 Refresh Token 使用。密码失败按「用户 + IP」独立计数，不影响登录频控（见 [02 §再认证](02-auth-and-permissions.md#再认证敏感操作前验密)）。
 
 ### 1.3 用户 `/api/users`
 
@@ -44,12 +47,15 @@
 | POST | `/api/users` | 公开 | `UserResponseDto` |
 | GET | `/api/users` | MODERATOR+ | `Paginated<UserListItemDto>` |
 | GET | `/api/users/me` | USER+ | `UserResponseDto` |
-| PATCH | `/api/users/me/password` | USER+ | `{ message: string }` |
+| PATCH | `/api/users/me/password` | USER+，且需 `X-Reauth-Token` | `{ message: string }` |
 | GET | `/api/users/{id}/public` | 公开 | `{ id, username, bio, role, avatar: { path } \| null, avatarUrl }` |
 | GET | `/api/users/{id}` | 本人或管理员+ | `UserResponseDto` |
 | PATCH | `/api/users/{id}` | 本人或管理员+ | `UserResponseDto` |
-| DELETE | `/api/users/{id}` | 本人或管理员+ | `{ message: string }` |
-| PATCH | `/api/users/{id}/role` | MODERATOR+ | `UserResponseDto` |
+| DELETE | `/api/users/{id}` | 本人或管理员+，且需 `X-Reauth-Token` | `{ message: string }` |
+| PATCH | `/api/users/{id}/role` | MODERATOR+，且需 `X-Reauth-Token` | `UserResponseDto` |
+
+- `PATCH /api/users/me/password` 现在只接收 `{ newPassword, encrypted? }`，**不再接收 `oldPassword`**；旧密码由 `POST /api/auth/verify-password` 先行验证，再把票据放进 `X-Reauth-Token`。
+- 删除账号与修改角色同属敏感操作，也必须带 `X-Reauth-Token`；票据只能由当前登录账号本人签发，管理员删/改下级时验的是管理员自己的密码。
 
 - `GET /api/users` 返回**全部用户**（按创建时间倒序、分页），不做 `canManageTarget` 过滤：MODERATOR 也能看到 ADMIN 的邮箱。这是现有行为，见 [07 §3](07-changes.md#3-未做--已知限制)。
 - `PATCH /api/users/{id}` 的用户名/邮箱冲突返回 `409`（软删除用户仍占唯一索引）。
@@ -177,6 +183,8 @@
 | | `password` | string | 必填；`encrypted=true` 时是 RSA 密文的 base64 |
 | | `encrypted` | boolean | 默认 `false` |
 | `RefreshTokenDto` | `refreshToken` | string | 必填 |
+| `VerifyPasswordDto` | `password` | string | 必填；`encrypted=true` 时是 RSA 密文的 base64 |
+| | `encrypted` | boolean | 默认 `false` |
 
 ### 2.2 用户
 
@@ -189,9 +197,10 @@
 | | `encrypted` | boolean | 默认 `false` |
 | `UpdateUserDto` | `username` / `email` / `bio` | string | 全部可选 |
 | `UpdateUserRoleDto` | `role` | enum | 必填，须在 `assignableRoles` 内 |
-| `ChangePasswordDto` | `oldPassword` | string | 必填 |
-| | `newPassword` | string | 必填，6–100 |
+| `ChangePasswordDto` | `newPassword` | string | 必填，6–100 |
 | | `encrypted` | boolean | 默认 `false` |
+
+> `ChangePasswordDto` 已移除 `oldPassword`；旧密码由 `POST /api/auth/verify-password` 验证，请求另需 `X-Reauth-Token` 头。
 
 ### 2.3 图片
 

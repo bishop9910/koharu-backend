@@ -16,9 +16,7 @@ paths:
         - app
   /api/auth/public-key:
     get:
-      description: >-
-        返回 RSA 公钥（SPKI PEM）。前端用 RSA-OAEP(SHA-256) 加密登录密码后，再以 encrypted=true 提交
-        /auth/login
+      description: 返回 RSA 公钥（SPKI PEM）。前端用 RSA-OAEP(SHA-256) 加密登录密码后，再以 encrypted=true 提交 /auth/login
       operationId: AuthController_getPublicKey
       parameters: []
       responses:
@@ -37,9 +35,7 @@ paths:
         - auth
   /api/auth/login:
     post:
-      description: >-
-        使用用户名和密码进行认证，成功后返回 Access Token 和 Refresh Token。失败次数过多会暂时拒绝（同一用户名 15 分钟
-        5 次 / 同一 IP 20 次，可通过 `auth.login_throttle` 配置）
+      description: 使用用户名和密码进行认证，成功后返回 Access Token 和 Refresh Token。失败次数过多会暂时拒绝（同一用户名 15 分钟 5 次 / 同一 IP 20 次，可通过 `auth.login_throttle` 配置）
       operationId: AuthController_login
       parameters: []
       requestBody:
@@ -105,6 +101,64 @@ paths:
                     description: 距离可以再次尝试的毫秒数
                     example: 891540
       summary: 用户登录
+      tags:
+        - auth
+  /api/auth/verify-password:
+    post:
+      description: 必须携带有效 Access Token，只能校验当前登录账号自己的密码（身份取自 Token，不接受用户名）。校验通过返回短期有效的再认证票据 reauthToken，再调用敏感接口时放进 X-Reauth-Token 请求头；密码错误返回 400，失败次数过多返回 429（独立于登录频控，可通过 auth.reauth 配置）。
+      operationId: AuthController_verifyPassword
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyPasswordDto'
+      responses:
+        '200':
+          description: 密码正确，返回再认证票据
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                    example: true
+                  reauthToken:
+                    type: string
+                    description: 短期再认证票据，放进 X-Reauth-Token 请求头
+                  expiresIn:
+                    type: number
+                    description: 票据有效期（毫秒）
+                    example: 300000
+        '400':
+          description: 密码错误，或密码解密失败
+        '401':
+          description: 未提供有效的 Access Token
+        '429':
+          description: 再认证失败次数过多，请稍后重试
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: number
+                    example: 429
+                  message:
+                    type: string
+                    example: 密码验证失败次数过多，请 892 秒后再试
+                  error:
+                    type: string
+                    example: Too Many Requests
+                  retryAfterMs:
+                    type: number
+                    description: 距离可以再次尝试的毫秒数
+                    example: 891540
+      security:
+        - bearer: []
+      summary: 校验当前账号密码（敏感操作前再认证）
       tags:
         - auth
   /api/auth/refresh:
@@ -239,9 +293,15 @@ paths:
         - users
   /api/users/me/password:
     patch:
-      description: 必须提供正确的旧密码
+      description: 需先调用 POST /api/auth/verify-password 校验当前密码，拿到再认证票据后放进 X-Reauth-Token；本接口不再接收旧密码。
       operationId: UserController_changePassword
-      parameters: []
+      parameters:
+        - name: X-Reauth-Token
+          in: header
+          description: 来自 POST /api/auth/verify-password 的短期再认证票据
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -260,9 +320,9 @@ paths:
                     type: string
                     example: 密码修改成功
         '400':
-          description: 原密码错误 或 新密码不符合长度要求
+          description: 新密码不符合长度要求，或密码解密失败
         '401':
-          description: 未提供有效的 Token
+          description: 未提供有效的 Token，或再认证票据缺失/无效/已过期
       security:
         - bearer: []
       summary: 修改当前用户的密码
@@ -381,12 +441,18 @@ paths:
       tags:
         - users
     delete:
-      description: 只能删除自己，或由上级角色删除下级用户。会联动删除头像文件。
+      description: 敏感操作：需先在 X-Reauth-Token 中携带有效的再认证票据。只能删除自己，或由上级角色删除下级用户。会联动删除头像文件。
       operationId: UserController_remove
       parameters:
         - name: id
           required: true
           in: path
+          schema:
+            type: string
+        - name: X-Reauth-Token
+          in: header
+          description: 删除账号属于敏感操作，需先调用 POST /api/auth/verify-password 获取再认证票据
+          required: true
           schema:
             type: string
       responses:
@@ -401,7 +467,7 @@ paths:
                     type: string
                     example: 用户已删除
         '401':
-          description: 未提供有效的 Token
+          description: 未提供有效的 Token，或再认证票据缺失/无效/已过期
         '403':
           description: 无权删除该用户
         '404':
@@ -413,14 +479,18 @@ paths:
         - users
   /api/users/{id}/role:
     patch:
-      description: >-
-        超级管理员可授予 ADMIN/MODERATOR/USER/GUEST；管理员可授予 MODERATOR/USER/GUEST；审核员可授予
-        USER/GUEST
+      description: 敏感操作：需先在 X-Reauth-Token 中携带有效的再认证票据。超级管理员可授予 ADMIN/MODERATOR/USER/GUEST；管理员可授予 MODERATOR/USER/GUEST；审核员可授予 USER/GUEST
       operationId: UserController_updateRole
       parameters:
         - name: id
           required: true
           in: path
+          schema:
+            type: string
+        - name: X-Reauth-Token
+          in: header
+          description: 修改角色属于敏感操作，需先调用 POST /api/auth/verify-password 获取再认证票据
+          required: true
           schema:
             type: string
       requestBody:
@@ -437,7 +507,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/UserResponseDto'
         '401':
-          description: 未提供有效的 Token
+          description: 未提供有效的 Token，或再认证票据缺失/无效/已过期
         '403':
           description: 无权修改该用户的角色
         '404':
@@ -748,9 +818,7 @@ paths:
         - images
   /api/images/{id}/thumbnail:
     get:
-      description: >-
-        已过审图片游客可预览；未过审图片仅审核员及以上或上传者本人可查看。凭证可用 Authorization: Bearer、koharu_token
-        Cookie 或 ?access_token= 三种方式之一携带；带了凭证但无效返回 401，完全不携带才按游客处理
+      description: '已过审图片游客可预览；未过审图片仅审核员及以上或上传者本人可查看。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token= 三种方式之一携带；带了凭证但无效返回 401，完全不携带才按游客处理'
       operationId: ImageController_getThumbnail
       parameters:
         - name: id
@@ -788,9 +856,7 @@ paths:
         - images
   /api/images/{id}/sign:
     get:
-      description: >-
-        无需登录：已过审图片对所有人开放，游客也能拿到链接；未过审图片仅审核员及以上与上传者本人可生成。downloadUrl
-        是含协议与主机名的绝对地址，有效期等于 expiresInMs
+      description: 无需登录：已过审图片对所有人开放，游客也能拿到链接；未过审图片仅审核员及以上与上传者本人可生成。downloadUrl 是含协议与主机名的绝对地址，有效期等于 expiresInMs
       operationId: ImageController_generateSignedUrl
       parameters:
         - name: id
@@ -828,9 +894,7 @@ paths:
         - images
   /api/images/{id}/download:
     get:
-      description: >-
-        已过审图片游客持签名链接即可下载；未过审图片仅审核员及以上或上传者本人可下载，其余返回 403。凭证可用 Authorization:
-        Bearer、koharu_token Cookie 或 ?access_token=
+      description: '已过审图片游客持签名链接即可下载；未过审图片仅审核员及以上或上传者本人可下载，其余返回 403。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token='
       operationId: ImageController_downloadOriginal
       parameters:
         - name: id
@@ -850,7 +914,7 @@ paths:
           in: query
           description: 过期时间戳 (毫秒)
           schema:
-            example: 1793274223848
+            example: 1793544227172
             type: string
         - name: access_token
           required: false
@@ -859,9 +923,7 @@ paths:
           schema: {}
       responses:
         '200':
-          description: >-
-            返回原图二进制流，Content-Type 为原图实际的 MIME，带 Content-Disposition: attachment
-            与 X-Content-MD5（供前端校验完整性）
+          description: '返回原图二进制流，Content-Type 为原图实际的 MIME，带 Content-Disposition: attachment 与 X-Content-MD5（供前端校验完整性）'
           content:
             image/jpeg:
               schema:
@@ -894,9 +956,7 @@ paths:
         - images
   /api/images/{id}:
     get:
-      description: >-
-        已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / uploaderIp /
-        reviewedBy；md5 保留，供前端校验下载到的原图是否完整
+      description: 已过审图片游客可访问；未过审图片仅审核员及以上或上传者本人可访问。响应已脱敏，不含 path / uploaderIp / reviewedBy；md5 保留，供前端校验下载到的原图是否完整
       operationId: ImageController_findOne
       parameters:
         - name: id
@@ -993,10 +1053,7 @@ paths:
         - library
   /api/library/password:
     post:
-      description: >-
-        只有 admin / super_admin
-        能改。修改成功后立即生成新一代数据密钥并在后台把全部图片重加密成新密钥；重加密期间服务保持可用，进度见 GET
-        /library/status。旧密码立即失效，新密码同时写入 adminInfo/info.json。
+      description: 只有 admin / super_admin 能改。修改成功后立即生成新一代数据密钥并在后台把全部图片重加密成新密钥；重加密期间服务保持可用，进度见 GET /library/status。旧密码立即失效，新密码同时写入 adminInfo/info.json。
       operationId: LibraryController_changePassword
       parameters: []
       requestBody:
@@ -1036,9 +1093,7 @@ paths:
         - library
   /api/library/unlock:
     post:
-      description: >-
-        正常情况下服务启动时会用 adminInfo/info.json
-        里的图库密码自动解锁；只有密码文件缺失或被删时才需要手动解锁。锁定期间任何图片的读取、缩略图生成与上传都会返回 503。
+      description: 正常情况下服务启动时会用 adminInfo/info.json 里的图库密码自动解锁；只有密码文件缺失或被删时才需要手动解锁。锁定期间任何图片的读取、缩略图生成与上传都会返回 503。
       operationId: LibraryController_unlock
       parameters: []
       requestBody:
@@ -1283,10 +1338,7 @@ paths:
         - avatars
   /api/avatars/{userId}/review:
     post:
-      description: >-
-        approved 会替换当前头像；rejected
-        会作废投稿并回退到上一个头像。默认不能审核自己提交的头像；管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样可以审核自己的头像。两种结果的响应形状一致，avatar
-        为 null 表示没有产生当前头像
+      description: approved 会替换当前头像；rejected 会作废投稿并回退到上一个头像。默认不能审核自己提交的头像；管理员及以上角色天然豁免，被加入自审赦免名单的审核员同样可以审核自己的头像。两种结果的响应形状一致，avatar 为 null 表示没有产生当前头像
       operationId: AvatarController_review
       parameters:
         - name: userId
@@ -1423,9 +1475,7 @@ paths:
         - avatars
   /api/avatars/{userId}/pending/image:
     get:
-      description: >-
-        本人可看自己待审核的头像（提交后即刻预览），审核员及以上可看任意用户的；其余 403。凭证可用 Authorization:
-        Bearer、koharu_token Cookie 或 ?access_token=
+      description: '本人可看自己待审核的头像（提交后即刻预览），审核员及以上可看任意用户的；其余 403。凭证可用 Authorization: Bearer、koharu_token Cookie 或 ?access_token='
       operationId: AvatarController_getPendingImage
       parameters:
         - name: userId
@@ -2009,9 +2059,8 @@ info:
     全局约定：所有接口统一前缀 `/api`；路径参数 `:id` / `:userId` 必须为 UUID，格式非法时直接返回 400，不会进入业务逻辑。
 
 
-    鉴权凭证支持三种携带方式，任选其一：`Authorization: Bearer <token>`、`koharu_token`
-    Cookie（登录/刷新时下发，供 `<img>` / `<a download>` 等原生请求使用）、`?access_token=<token>`
-    查询参数（跨域导致 Cookie 不可用时）。带了凭证但已失效返回 401；完全不携带凭证时按游客处理（仅公开资源可用）。
+    鉴权凭证支持三种携带方式，任选其一：`Authorization: Bearer <token>`、`koharu_token` Cookie（登录/刷新时下发，供 `<img>` / `<a download>` 等原生请求使用）、`?access_token=<token>` 查询参数（跨域导致 Cookie 不可用时）。带了凭证但已失效返回
+    401；完全不携带凭证时按游客处理（仅公开资源可用）。
   version: 0.1.0
   contact: {}
 tags:
@@ -2059,6 +2108,20 @@ components:
           default: false
       required:
         - username
+        - password
+    VerifyPasswordDto:
+      type: object
+      properties:
+        password:
+          type: string
+          description: 当前账号的密码。未加密时为明文，encrypted=true 时为 RSA-OAEP(SHA-256) 加密后的 base64
+          example: Admin@123456
+        encrypted:
+          type: boolean
+          description: password 是否已使用 /auth/public-key 返回的公钥加密
+          example: true
+          default: false
+      required:
         - password
     RefreshTokenDto:
       type: object
@@ -2230,21 +2293,16 @@ components:
     ChangePasswordDto:
       type: object
       properties:
-        oldPassword:
-          type: string
-          description: 当前旧密码（明文或 RSA-OAEP 加密后的 base64）
-          example: OldPassword123
         newPassword:
           type: string
           description: 新密码（明文或 RSA-OAEP 加密后的 base64，至少6个字符）
           example: NewPassword456
         encrypted:
           type: boolean
-          description: oldPassword / newPassword 是否已使用 /auth/public-key 返回的公钥加密
+          description: newPassword 是否已使用 /auth/public-key 返回的公钥加密
           example: true
           default: false
       required:
-        - oldPassword
         - newPassword
     UpdateUserDto:
       type: object

@@ -79,6 +79,18 @@
 
 计数在**进程内存**里：多实例部署时各自计数，等效阈值被放大。要全局一致需换成 Redis。
 
+### 2.8 `auth.reauth`
+
+控制 `POST /api/auth/verify-password` 与 `X-Reauth-Token` 再认证票据。
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `ttl_ms` | `300000` | 再认证票据有效期（5 分钟） |
+| `max_failures` | `5` | 同一账号的验密失败上限（独立桶，不与登录共享） |
+| `ip_max_failures` | `20` | 同一 IP 的验密失败上限（独立桶） |
+
+窗口与封禁时长复用 `auth.login_throttle.window_ms` / `block_ms`，不在这里重复配置；票据与访问令牌同密钥签发，payload 带 `purpose: "reauth"`，不能被当作 access/refresh token 使用。
+
 ## 3. 运行时目录
 
 ```text

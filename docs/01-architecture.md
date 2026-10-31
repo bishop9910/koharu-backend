@@ -80,7 +80,7 @@ Authorization: Bearer <token>
                └─▶ req.user = { id, username, role }
 ```
 
-JWT 的 payload 只有一个 `sub`（用户 id），**角色永远来自数据库**。原因是角色可以被管理员随时改，把 role 塞进 token 会让降级在 token 过期前不生效，也会让伪造成为可能。代价是每个受保护请求多一次主键查询。
+JWT 的 payload 只有 `sub`（用户 id）和 `purpose`（`access` / `refresh` / `reauth`，旧令牌没有该字段按 access 处理），**角色永远来自数据库**。原因是角色可以被管理员随时改，把 role 塞进 token 会让降级在 token 过期前不生效，也会让伪造成为可能。代价是每个受保护请求多一次主键查询。`JwtStrategy` 会拒绝非 `access` 的令牌，再认证票据与刷新令牌不能混用作访问凭证。
 
 `OptionalJwtAuthGuard` 继承同一个策略，只是把 `handleRequest` 改成 `return user || null`——token 过期或乱填都不报错，按游客处理。公开接口用它是为了「登录了能看到更多」：比如 `GET /images/{id}` 对游客只看已过审，对审核员能看待审图。
 

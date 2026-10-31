@@ -7,7 +7,8 @@ import {
   HttpCode, 
   HttpStatus, 
   Req,
-  Res
+  Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -17,11 +18,14 @@ import {
   ApiOkResponse, 
   ApiResponse,
   ApiUnauthorizedResponse,
-  ApiBadRequestResponse
+  ApiBadRequestResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
+import { VerifyPasswordDto } from './dto/verify-password.dto.js';
+import { JwtAuthGuard } from './guards/jwt.guard.js';
 import { Role } from '../enums/role.enum.js';
 import { AUTH_COOKIE_NAME } from '../common/constants.js';
 
@@ -102,6 +106,51 @@ export class AuthController {
     const result = await this.authService.loginWithThrottle(loginDto, req.ip);
     this.setAuthCookie(res, result.accessToken, result.expiresIn);
     return result;
+  }
+
+  /**
+   * 再认证：校验当前账号密码
+   * POST /auth/verify-password
+   */
+  @HttpCode(HttpStatus.OK)
+  @Post('verify-password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '校验当前账号密码（敏感操作前再认证）',
+    description:
+      '必须携带有效 Access Token，只能校验当前登录账号自己的密码（身份取自 Token，不接受用户名）。' +
+      '校验通过返回短期有效的再认证票据 reauthToken，再调用敏感接口时放进 X-Reauth-Token 请求头；' +
+      '密码错误返回 400，失败次数过多返回 429（独立于登录频控，可通过 auth.reauth 配置）。',
+  })
+  @ApiOkResponse({
+    description: '密码正确，返回再认证票据',
+    schema: {
+      type: 'object',
+      properties: {
+        valid: { type: 'boolean', example: true },
+        reauthToken: { type: 'string', description: '短期再认证票据，放进 X-Reauth-Token 请求头' },
+        expiresIn: { type: 'number', description: '票据有效期（毫秒）', example: 300000 },
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: '密码错误，或密码解密失败' })
+  @ApiUnauthorizedResponse({ description: '未提供有效的 Access Token' })
+  @ApiResponse({
+    status: 429,
+    description: '再认证失败次数过多，请稍后重试',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 429 },
+        message: { type: 'string', example: '密码验证失败次数过多，请 892 秒后再试' },
+        error: { type: 'string', example: 'Too Many Requests' },
+        retryAfterMs: { type: 'number', description: '距离可以再次尝试的毫秒数', example: 891540 },
+      },
+    },
+  })
+  async verifyPassword(@Req() req: any, @Body() dto: VerifyPasswordDto) {
+    return this.authService.verifyPassword(req.user.id, dto, req.ip);
   }
 
   /**

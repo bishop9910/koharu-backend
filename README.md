@@ -263,8 +263,11 @@ auth:
 | GET | `/auth/public-key` | 获取登录/改密用的 RSA 公钥（`PEM`） | 公开 |
 | POST | `/auth/login` | 登录，返回 Access/Refresh Token；失败次数超额返回 `429`（含 `retryAfterMs`） | 公开 |
 | POST | `/auth/refresh` | 刷新 Access Token | 公开 |
+| POST | `/auth/verify-password` | 再认证：校验当前账号密码，成功返回短期 `reauthToken`（放进 `X-Reauth-Token`） | 登录 |
 
 > 登录响应为 `{ accessToken, refreshToken, expiresIn, user: { id, username, role } }`，`expiresIn` 单位为**毫秒**；`role` 取值是大写的 `SUPER_ADMIN` / `ADMIN` / `MODERATOR` / `USER` / `GUEST`。
+>
+> 敏感操作（改密码、删账号、改角色）需要先调 `POST /auth/verify-password` 拿到再认证票据，再在请求头带 `X-Reauth-Token: <reauthToken>`；票据默认 5 分钟有效（`auth.reauth.ttl_ms`），只能用于当前登录账号。
 
 ### users（用户）
 
@@ -273,12 +276,12 @@ auth:
 | POST | `/users` | 注册（默认 USER） | 公开 |
 | GET | `/users` | 分页用户列表 | MODERATOR+ |
 | GET | `/users/me` | 当前用户信息 | 登录 |
-| PATCH | `/users/me/password` | 修改自己密码 | 登录 |
+| PATCH | `/users/me/password` | 修改自己密码（需 `X-Reauth-Token`，不再要求旧密码） | 登录 + 再认证 |
 | GET | `/users/:id/public` | 公开资料 | 公开 |
 | GET | `/users/:id` | 用户详情 | 本人/上级 |
 | PATCH | `/users/:id` | 更新用户信息（用户名/邮箱重复返回 `409`） | 本人/上级 |
-| DELETE | `/users/:id` | 删除用户（联动删图片/头像/图集） | 本人/上级 |
-| PATCH | `/users/:id/role` | 修改角色 | MODERATOR+（分级受限） |
+| DELETE | `/users/:id` | 删除用户（联动删图片/头像/图集；需 `X-Reauth-Token`） | 本人/上级 + 再认证 |
+| PATCH | `/users/:id/role` | 修改角色（需 `X-Reauth-Token`） | MODERATOR+（分级受限）+ 再认证 |
 
 ### images（图片投稿）
 
@@ -381,12 +384,12 @@ auth:
 | [docs/README.md](./docs/README.md) | 索引、五分钟启动、目录结构、全局约定、审核闭环 |
 | [docs/01-architecture.md](./docs/01-architecture.md) | 分层、模块装配、请求生命周期、鉴权链、审核状态机、文件存储、审计、后台任务 |
 | [docs/02-auth-and-permissions.md](./docs/02-auth-and-permissions.md) | 角色层级、权限矩阵、登录流程、频控、游客可见性、审核规则 |
-| [docs/03-api.md](./docs/03-api.md) | 46 个操作的端点表、请求/响应 DTO 字段、curl 示例 |
+| [docs/03-api.md](./docs/03-api.md) | 50 个操作的端点表、请求/响应 DTO 字段、curl 示例 |
 | [docs/04-data-model.md](./docs/04-data-model.md) | 表结构、枚举、索引、级联与迁移注意 |
 | [docs/05-config-and-deploy.md](./docs/05-config-and-deploy.md) | 配置全键、构建启动、日志、图库密码运维、反向代理、上线检查清单 |
 | [docs/06-errors.md](./docs/06-errors.md) | 错误体、状态码语义、逐端点错误文案、重试建议 |
 | [docs/07-changes.md](./docs/07-changes.md) | 近期改动与已知限制 |
-| [docs/openapi.json](./docs/openapi.json) / [docs/openapi.yaml](./docs/openapi.yaml) | 从运行中的服务导出的 OpenAPI 3.0 规格（46 操作 / 28 schema） |
+| [docs/openapi.json](./docs/openapi.json) / [docs/openapi.yaml](./docs/openapi.yaml) | 从运行中的服务导出的 OpenAPI 3.0 规格（50 操作 / 30 schema） |
 
 ---
 

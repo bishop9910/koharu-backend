@@ -23,6 +23,7 @@ import {
   ApiNotFoundResponse,
   ApiConflictResponse,
   ApiExtraModels,
+  ApiHeader,
 } from '@nestjs/swagger';
 import { UserService } from './user.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
@@ -30,6 +31,7 @@ import { UpdateUserDto } from './dto/update-user.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { FindUsersQueryDto } from './dto/find-users-query.dto.js';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard.js';
+import { ReauthGuard } from '../auth/guards/reauth.guard.js';
 import { MinRoleGuard, MinRole } from '../common/guards/role.guard.js';
 import { Role } from '../enums/role.enum.js';
 import { UserResponseDto } from './dto/user-response.dto.js';
@@ -90,16 +92,25 @@ export class UserController {
 
   @Patch('me/password')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '修改当前用户的密码', description: '必须提供正确的旧密码' })
+  @UseGuards(JwtAuthGuard, ReauthGuard)
+  @ApiHeader({
+    name: 'X-Reauth-Token',
+    description: '来自 POST /api/auth/verify-password 的短期再认证票据',
+    required: true,
+  })
+  @ApiOperation({
+    summary: '修改当前用户的密码',
+    description:
+      '需先调用 POST /api/auth/verify-password 校验当前密码，拿到再认证票据后放进 X-Reauth-Token；本接口不再接收旧密码。',
+  })
   @ApiOkResponse({
     description: '密码修改成功',
     schema: { type: 'object', properties: { message: { type: 'string', example: '密码修改成功' } } },
   })
-  @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
-  @ApiResponse({ status: 400, description: '原密码错误 或 新密码不符合长度要求' })
+  @ApiUnauthorizedResponse({ description: '未提供有效的 Token，或再认证票据缺失/无效/已过期' })
+  @ApiResponse({ status: 400, description: '新密码不符合长度要求，或密码解密失败' })
   async changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
-    return this.userService.changePassword(req.user.id, dto.oldPassword, dto.newPassword, dto.encrypted);
+    return this.userService.changePassword(req.user.id, dto.newPassword, dto.encrypted);
   }
 
   @Get(':id/public')
@@ -159,13 +170,22 @@ export class UserController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: '删除用户 (软删除)', description: '只能删除自己，或由上级角色删除下级用户。会联动删除头像文件。' })
+  @UseGuards(JwtAuthGuard, ReauthGuard)
+  @ApiHeader({
+    name: 'X-Reauth-Token',
+    description: '删除账号属于敏感操作，需先调用 POST /api/auth/verify-password 获取再认证票据',
+    required: true,
+  })
+  @ApiOperation({
+    summary: '删除用户 (软删除)',
+    description:
+      '敏感操作：需先在 X-Reauth-Token 中携带有效的再认证票据。只能删除自己，或由上级角色删除下级用户。会联动删除头像文件。',
+  })
   @ApiOkResponse({
     description: '删除成功',
     schema: { type: 'object', properties: { message: { type: 'string', example: '用户已删除' } } },
   })
-  @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
+  @ApiUnauthorizedResponse({ description: '未提供有效的 Token，或再认证票据缺失/无效/已过期' })
   @ApiForbiddenResponse({ description: '无权删除该用户' })
   @ApiNotFoundResponse({ description: '用户不存在' })
   async remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
@@ -175,11 +195,20 @@ export class UserController {
 
   @Patch(':id/role')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, MinRoleGuard)
+  @UseGuards(JwtAuthGuard, MinRoleGuard, ReauthGuard)
   @MinRole(Role.MODERATOR)
-  @ApiOperation({ summary: '修改用户角色', description: '超级管理员可授予 ADMIN/MODERATOR/USER/GUEST；管理员可授予 MODERATOR/USER/GUEST；审核员可授予 USER/GUEST' })
+  @ApiHeader({
+    name: 'X-Reauth-Token',
+    description: '修改角色属于敏感操作，需先调用 POST /api/auth/verify-password 获取再认证票据',
+    required: true,
+  })
+  @ApiOperation({
+    summary: '修改用户角色',
+    description:
+      '敏感操作：需先在 X-Reauth-Token 中携带有效的再认证票据。超级管理员可授予 ADMIN/MODERATOR/USER/GUEST；管理员可授予 MODERATOR/USER/GUEST；审核员可授予 USER/GUEST',
+  })
   @ApiOkResponse({ description: '角色修改成功，返回最新用户信息', type: UserResponseDto })
-  @ApiUnauthorizedResponse({ description: '未提供有效的 Token' })
+  @ApiUnauthorizedResponse({ description: '未提供有效的 Token，或再认证票据缺失/无效/已过期' })
   @ApiForbiddenResponse({ description: '无权修改该用户的角色' })
   @ApiNotFoundResponse({ description: '用户不存在' })
   async updateRole(

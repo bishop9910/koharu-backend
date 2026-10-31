@@ -12,6 +12,7 @@
 | `GET /api/avatars/pending` | MODERATOR+ | 待审核头像队列 |
 | `GET /api/avatars/{userId}/pending/image` | 本人 或 MODERATOR+ | 待审核头像图片流（提交后可立刻预览自己那张） |
 | `GET /api/auth/public-key` | 公开 | 取 RSA 公钥，用于加密登录密码 |
+| `POST /api/auth/verify-password` | USER+（本人） | 敏感操作前再认证：校验当前账号密码，返回短期 `reauthToken` |
 | `GET /api/library/status` | 公开 | 查询图库是否已解锁、密钥版本、重加密进度 |
 | `POST /api/library/password` | ADMIN+ | 修改图库密码并触发后台重加密 |
 | `POST /api/library/unlock` | ADMIN+ | 锁定态下用图库密码解锁 |
@@ -36,6 +37,8 @@
 | `GET /api/users/{id}/public` | 新增 `avatarUrl`（`avatar` 保持 `{ path }` 不变） | |
 | `POST /api/avatars/{userId}` | 响应 `submission` 新增 `imageUrl` | 提交后可直接用 `<img src>` 预览待审头像 |
 | `POST /api/auth/login` | 超额失败返回 `429`，body 含 `retryAfterMs` | 加倒计时提示 |
+| `POST /api/auth/login`、`/auth/refresh` | Token 增加 `purpose` claim（`access` / `refresh`） | 正常调用不受影响；不要拿 refresh token 当 access token 用 |
+| `PATCH /api/users/me/password` | 不再接收 `oldPassword` | 先调 `verify-password`，请求带 `newPassword` + `X-Reauth-Token` |
 
 ### 1.3 鉴权行为变化
 
@@ -48,12 +51,17 @@
 | `POST /api/images/{id}/review` | 可自审 | **默认自审 403**；ADMIN+ 天然豁免，审核员在自审赦免名单内时放行 |
 | `POST /api/avatars/{userId}/review` | 可自审 | **默认自审 403**；ADMIN+ 天然豁免，审核员在自审赦免名单内时放行 |
 | 任一 `OptionalJwtAuthGuard` 端点 | 凭证失效时静默按游客处理（表现为 403） | 凭证失效返回 `401`；只有完全不带凭证才是游客 |
+| `PATCH /api/users/me/password` | 登录 + `oldPassword` | 登录 + **再认证票据**（`X-Reauth-Token`），不再校验 `oldPassword` |
+| `DELETE /api/users/{id}` | 登录 + 本人/管理员+ | 追加 **再认证票据** |
+| `PATCH /api/users/{id}/role` | MODERATOR+ 且受分级限制 | 追加 **再认证票据** |
 
 ### 1.4 新增的错误
 
 | 码 | 触发 | 说明 |
 |---|---|---|
 | `429` | 登录失败超限 | `retryAfterMs` |
+| `429` | 验密失败超限（独立桶） | `密码验证失败次数过多，请 N 秒后再试`，不影响登录 |
+| `401` | 敏感接口缺票、票据过期/无效、票据不属于当前账号 | 重新调 `verify-password`；文案见 [06 §3.2](06-errors.md#32-用户) |
 | `409` | 重复审核（目标状态与当前相同） | 幂等调用方需处理 |
 | `409` | 审核期间状态被他人改变 | 条件更新，`affected = 0` |
 | `409` | `PATCH /users/{id}` 用户名/邮箱冲突 | 原来可能 500 |
@@ -98,7 +106,7 @@
 
 ## 2.2 OpenAPI 规格重新导出
 
-`docs/openapi.json` 与 `docs/openapi.yaml` 已从运行中的服务重新导出，与当前实现一致：**37 个 path / 49 个 operation / 29 个 schema**，`components.securitySchemes` 为 `bearer` + `koharu_token`（cookie），缩略图 / 签名 / 下载三个图片流接口另外声明了可选 `?access_token=` 参数，`GET /api/avatars/{userId}/pending/image` 的 `security` 为「Cookie 或 Bearer 二者之一」。改了 DTO 或 controller 之后必须重导，步骤见 [README · 重新导出 OpenAPI 规格](README.md#重新导出-openapi-规格)。
+`docs/openapi.json` 与 `docs/openapi.yaml` 已从运行中的服务重新导出，与当前实现一致：**38 个 path / 50 个 operation / 30 个 schema**，`components.securitySchemes` 为 `bearer` + `koharu_token`（cookie），缩略图 / 签名 / 下载三个图片流接口另外声明了可选 `?access_token=` 参数，`GET /api/avatars/{userId}/pending/image` 的 `security` 为「Cookie 或 Bearer 二者之一」。改密码 / 删账号 / 改角色三个接口已声明必填 `X-Reauth-Token` 头，`VerifyPasswordDto` 已进入 schema。改了 DTO 或 controller 之后必须重导，步骤见 [README · 重新导出 OpenAPI 规格](README.md#重新导出-openapi-规格)。
 
 ## 2.3 自审豁免（本轮新增）
 
@@ -110,13 +118,25 @@
 | 审计日志自动覆盖 | 加入/移出都是非 GET 请求，`AuditLogInterceptor` 记录 `action = POST /review-exemptions/:userId` 等，授予时间可从日志回溯 |
 | 生产环境需要手工加列 | 仓库无迁移文件，`synchronize=false`：`ALTER TABLE users ADD COLUMN "reviewExempt" boolean NOT NULL DEFAULT false;` |
 
+## 2.4 敏感操作再认证（本轮新增）
+
+| 变更 | 说明 |
+|---|---|
+| 新增 `POST /api/auth/verify-password` | 登录态下校验当前账号密码，成功返回默认 5 分钟有效的 `reauthToken`；密码错误 400，失败超限 429（独立于登录频控） |
+| 新增 `X-Reauth-Token` 请求头 | `PATCH /api/users/me/password`、`DELETE /api/users/{id}`、`PATCH /api/users/{id}/role` 强制要求；管理员删/改下级时验的是管理员自己的密码 |
+| `PATCH /api/users/me/password` 去掉 `oldPassword` | 旧密码只由 verify 接口验证一次，避免重复比对、重复计失败 |
+| 令牌增加 `purpose` claim | `access` / `refresh` / `reauth` 三种用途；`JwtStrategy` 只接受 `access`（旧令牌无 `purpose` 仍兼容），`/auth/refresh` 只接受 `refresh`，票据无法混用 |
+| 配置 `auth.reauth` | `ttl_ms`（300000）/ `max_failures`（5）/ `ip_max_failures`（20），窗口与封禁复用 `auth.login_throttle` |
+| 频控分桶 | 再认证使用 `r:` / `rip:` 独立桶，验密失败不会把账号的登录入口锁死 |
+
 ## 3. 未做 / 已知限制
 
 | 项 | 说明 |
 |---|---|
 | 头像拒绝原因不持久化 | `avatar_submissions` 没有 `rejectReason` 列，只写进审计日志；要展示给用户必须加列（见 [04 §6](04-data-model.md#6-生产环境的迁移注意)） |
 | `GET /users` 不按层级过滤 | MODERATOR 也能拿到 ADMIN/SUPER_ADMIN 的邮箱；只靠 `@MinRole(MODERATOR)` 拦入口 |
-| 登录频控是进程内存 | 多实例部署时阈值被放大；要全局一致需 Redis |
+| 登录/验密频控是进程内存 | 多实例部署时阈值被放大；要全局一致需 Redis |
+| 再认证票据不可撤销 | 无状态 JWT，有效期内被窃取仍可使用；改密码不会让已签发的票据或 access token 立即失效 |
 | 没有 `trust proxy` | 挂 Nginx 后 `req.ip` 全是代理地址，频控与 `uploaderIp` 失真（见 [05 §5](05-config-and-deploy.md#5-反向代理注意事项)） |
 | 没有邮件验证 | `emailVerified` 默认 `true`，字段只是预留 |
 | 没有分页游标 | 一律 `page`/`limit` 偏移分页，深翻页有性能上限 |

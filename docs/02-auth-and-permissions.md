@@ -49,6 +49,7 @@
 | `GET /api/auth/public-key` | 公开 | 返回 RSA 公钥（SPKI PEM） |
 | `POST /api/auth/login` | 公开 | 用户名+密码，可选 RSA 加密传输；失败过多 429 |
 | `POST /api/auth/refresh` | 公开 | 用 refreshToken 换新的 accessToken |
+| `POST /api/auth/verify-password` | USER+（本人） | 再认证：校验当前账号密码，返回短期 `reauthToken` |
 
 ### 用户
 
@@ -57,12 +58,12 @@
 | `POST /api/users`（注册） | 公开 |
 | `GET /api/users/{id}/public` | 公开（只有 id/username/bio/role/avatar） |
 | `GET /api/users/me` | USER+（本人） |
-| `PATCH /api/users/me/password` | USER+（本人） |
+| `PATCH /api/users/me/password` | USER+（本人）+ 再认证票据；不再要求 `oldPassword` |
 | `GET /api/users` | MODERATOR+ |
 | `GET /api/users/{id}` | 本人 或 `canManageTarget` |
 | `PATCH /api/users/{id}` | 本人 或 `canManageTarget`；用户名仅本人可改 |
-| `DELETE /api/users/{id}` | 本人 或 `canManageTarget`；SUPER_ADMIN 永不 |
-| `PATCH /api/users/{id}/role` | MODERATOR+ 且受 `canManageTarget` + `assignableRoles` 双重限制 |
+| `DELETE /api/users/{id}` | 本人 或 `canManageTarget` + 再认证票据；SUPER_ADMIN 永不 |
+| `PATCH /api/users/{id}/role` | MODERATOR+ 且受 `canManageTarget` + `assignableRoles` 双重限制，另需再认证票据 |
 
 ### 图片
 
@@ -171,7 +172,9 @@ RSA 密钥对在首次启动时生成到 `configs/rsa_private.pem`（权限 600�
 | access token 有效期 | 24 小时 | `server.token.timeout` |
 | refresh token 有效期 | 8 天 | `server.token.refresh_timeout` |
 | 签名算法 | HS256 | — |
-| payload | `{ sub: <userId>, iat, exp }` | — |
+| payload | access/refresh：`{ sub, purpose: "access" \| "refresh", iat, exp }`；再认证票据：`{ sub, purpose: "reauth", iat, exp }` | — |
+
+`purpose` 用来区分令牌用途：`JwtStrategy` 只接受 `purpose` 为空（旧令牌）或 `"access"` 的令牌，`refresh` 接口只接受 `purpose` 为空或 `"refresh"` 的令牌，再认证票据（`"reauth"`）两个入口都进不去。
 
 `role` 不在 token 里。每次请求由 `JwtStrategy` 用 `sub` 回库查 `{ id, username, role }`，所以管理员改角色会**立刻生效**，不需要等 token 过期；代价是每个受保护请求多一次主键查询。
 
@@ -185,6 +188,40 @@ POST /api/auth/refresh
 
 refresh token 无效或过期返回 401，此时只能重新登录。
 
+## 再认证（敏感操作前验密）
+
+改密码、删账号、改角色这类敏感操作，先调 `POST /api/auth/verify-password`（需登录态）验证**当前账号**的密码，成功后拿到短期 `reauthToken`，再放进 `X-Reauth-Token` 请求头调用目标接口。
+
+```http
+POST /api/auth/verify-password
+Authorization: Bearer <accessToken>
+{ "password": "<明文或 RSA 密文>", "encrypted": true }
+→ 200 { "valid": true, "reauthToken": "<jwt>", "expiresIn": 300000 }
+
+PATCH /api/users/me/password
+Authorization: Bearer <accessToken>
+X-Reauth-Token: <jwt>
+{ "newPassword": "..." }
+→ 200 { "message": "密码修改成功" }
+```
+
+- 身份只取自 Access Token（`req.user.id`），请求体不接受 username，因此天然只能验证自己。
+- 票据是 JWT，payload 为 `{ sub, purpose: "reauth", iat, exp }`，与访问令牌同密钥，有效期 `auth.reauth.ttl_ms`（默认 5 分钟）。`JwtStrategy` 拒绝 `purpose !== "access"` 的令牌，`refresh` 接口只接受 `purpose` 为空或 `"refresh"` 的令牌，所以票据不能被当作 access token 或 refresh token 使用。
+- `ReauthGuard` 校验四件事：票据存在、未过期、`purpose === "reauth"`、`sub` 与当前登录用户一致。缺票 401「缺少再认证票据，请先调用 POST /api/auth/verify-password」；过期/无效 401「再认证票据无效或已过期，请重新验证密码」；他人票据 401「再认证票据与当前登录账号不匹配」。
+- 需要票据的接口：`PATCH /api/users/me/password`、`DELETE /api/users/{id}`、`PATCH /api/users/{id}/role`。管理员删/改下级时，验的是**管理员自己**的密码，票据也只对管理员本人有效。
+- `PATCH /api/users/me/password` 不再接收 `oldPassword`；旧密码只在 verify 这一步验证一次，避免同一份密码被重复比对、重复计入频控。
+
+验密失败按独立桶计数（见下节），超限返回 429：
+
+```json
+{
+  "statusCode": 429,
+  "message": "密码验证失败次数过多，请 892 秒后再试",
+  "error": "Too Many Requests",
+  "retryAfterMs": 891540
+}
+```
+
 ## 登录频控
 
 `src/auth/login-throttle.service.ts`，纯进程内存，无外部依赖。
@@ -193,6 +230,8 @@ refresh token 无效或过期返回 401，此时只能重新登录。
 |---|---|---|---|
 | 用户名 | 5 次失败 | 15 分钟 / 15 分钟 | `auth.login_throttle.max_failures` |
 | IP | 20 次失败 | 同上 | `auth.login_throttle.ip_max_failures` |
+| 再认证用户 | 5 次失败 | 同上（复用登录窗口/封禁） | `auth.reauth.max_failures` |
+| 再认证 IP | 20 次失败 | 同上 | `auth.reauth.ip_max_failures` |
 
 超限响应（HTTP 429）：
 
@@ -212,6 +251,8 @@ refresh token 无效或过期返回 401，此时只能重新登录。
 - 只有「用户名存在但密码错」和「用户名不存在」计入失败；DTO 校验失败的请求（比如密码少于 6 位）在进入 controller 之前就被拦掉，不计入。
 
 **多实例注意**：计数在各自进程里，N 个实例等效阈值放大 N 倍。需要全局一致就要换 Redis 计数，或者在最外层网关做限流。
+
+再认证（`verify-password`）使用**独立桶**，不与登录共享计数：用户桶前缀 `r:`、IP 桶前缀 `rip:`，阈值 `auth.reauth.max_failures`（5）与 `auth.reauth.ip_max_failures`（20），窗口与封禁时长复用 `auth.login_throttle.window_ms` / `block_ms`。分开计数的原因是：持有效 token 的攻击者若能把登录用户名桶刷到封禁，就能顺带锁死账号的正常登录（DoS）；独立桶把影响限制在再认证这一条路径上。验密成功只清用户桶、保留 IP 桶，理由与登录相同。
 
 ## 游客能看到什么
 
