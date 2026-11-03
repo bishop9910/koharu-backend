@@ -46,7 +46,7 @@ HTTP ──▶ Controller（路由、Guard 挂载、Swagger 注解、参数 DTO�
 | `AvatarModule` | 头像投稿/审核/图片流 | Avatar、AvatarSubmission、User、`ReviewExemptionModule` |
 | `ImageModule` | 图库主链路 | Image、LibraryModule、`ReviewExemptionModule` |
 | `AuditModule` | 以 `APP_INTERCEPTOR` 全局注册审计拦截器 | AuditLog |
-| `AlbumModule` | 图集 + 标签（`TagController` 也在这一模块里） | Album、Tag、Image |
+| `AlbumModule` | 图集 + 标签 + 图集点赞/收藏/举报/整集评审（`TagController` 也在这一模块里） | Album、Tag、Image、AlbumLike、AlbumFavorite、AlbumReport |
 | `CleanupModule` | 定时清理过期软删用户 | User |
 | `ReviewExemptionModule` | 自审赦免名单：管理员把审核员加进/移出名单 | User |
 | `SeedModule` | 首次启动建主管理员、初始化图库密码 | User、LibraryModule |
@@ -130,6 +130,27 @@ submit ──▶ avatar_submissions(pending)
 - 不能审自己提交的头像（403），豁免规则与图片一致：ADMIN+ 天然豁免，审核员在自审赦免名单内时放行。
 - 拒绝时**不落库拒绝原因**：`avatar_submissions` 没有 `rejectReason` 列。原因只写进审计日志。这是已知限制，要补得加列并写迁移（生产 `synchronize=false`）。
 - 通过时返回 `{ message, status, avatar: { id, userId, createdAt } }`；拒绝时 `avatar` 为 `null`，两种结果形状一致，前端不用分支。
+
+### 图集
+
+图集审核是「举报驱动」的，状态存在 `albums.reviewStatus`，与图集里每张图片自己的 `status` 并行：
+
+```text
+   none ──举报被 verify 核实──▶ pending ──整集评审通过──▶ approved
+                                   │
+                                   │ 驳回（必须给 reason）
+                                   ▼
+                                rejected ──submit-review──▶ pending
+                                   │
+                                   └─ 所有者在 pending/rejected 期间可改一次
+                                      （reviewEditUsed 置 true）
+```
+
+- **举报 ≠ 进入评审**：举报先落 `album_reports.status=pending`，审核员核实（`verify`）后举报变 `verified`，图集才被置为 `pending` 进入待评审名单；`dismiss` 则只结束举报。
+- **整集评审**：`POST /albums/{id}/review` 一次处理图集内全部 `status=pending` 的图片（approved / rejected），不是逐张审；已过审、已驳回的图片不随图集结果翻转。图集被驳回时，原因同时写入每张被拒图片。
+- **一次修改机会**：`reviewEditUsed` 记录本轮是否已改过。`pending` 期间所有者可改；若被驳回且已改过，再改返回 403，只能 `submit-review` 原样重新提交，重新提交不重置 `reviewEditUsed`。
+- **自审限制**沿用图片/头像：不能评审自己拥有的图集，待审图片中包含自己上传的图片也拒绝；ADMIN+ 或自审赦免名单放行。
+- 举报被核实、图集进入 `pending` 时，只有图集**原本不在** `pending` 才重置修改机会与轮次，避免反复核实刷机会；评审结束后该图集所有 `verified` 举报自动置 `resolved`。
 
 ## 文件存储
 

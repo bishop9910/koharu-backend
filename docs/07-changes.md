@@ -19,6 +19,18 @@
 | `GET /api/review-exemptions` | ADMIN+ | 查看自审赦免名单（只列被显式授予的审核员） |
 | `POST /api/review-exemptions/{userId}` | ADMIN+ | 把审核员加入自审赦免名单，之后可审核自己的图片/头像 |
 | `DELETE /api/review-exemptions/{userId}` | ADMIN+ | 把审核员移出名单，恢复「不能自审」 |
+| `GET /api/albums/favorites` | USER+ | 我的图集收藏夹（按收藏时间倒序，分页） |
+| `GET /api/albums/liked` | USER+ | 我点赞过的图集（按点赞时间倒序，分页） |
+| `POST` / `DELETE /api/albums/{id}/like` | USER+ | 点赞 / 取消点赞（幂等，返回最新计数与本人状态） |
+| `POST` / `DELETE /api/albums/{id}/favorite` | USER+ | 收藏 / 取消收藏（幂等，返回最新计数与本人状态） |
+| `POST /api/albums/{id}/reports` | USER+ | 举报图集（不能举报自己的图集；同一图集只能有一条待处理举报） |
+| `POST /api/albums/{id}/submit-review` | 本人 | 被驳回后重新提交评审 |
+| `POST /api/albums/{id}/review` | MODERATOR+ | 整集评审：一次处理图集内全部待审图片 |
+| `GET /api/album-reports` | MODERATOR+ | 举报队列（`?status=pending|verified|dismissed|resolved`） |
+| `GET /api/album-reports/{id}` | MODERATOR+ | 举报详情 |
+| `POST /api/album-reports/{id}/verify` | MODERATOR+ | 核实举报，并把图集加入待评审名单 |
+| `POST /api/album-reports/{id}/dismiss` | MODERATOR+ | 驳回举报 |
+| `GET /api/album-reviews/pending` | MODERATOR+ | 图集待评审名单（含待审图片数与已核实举报） |
 
 ### 1.2 响应形状变化
 
@@ -33,6 +45,8 @@
 | `POST /api/avatars/{userId}/review` | 统一返回 `{ message, status, avatar }`；拒绝时 `avatar: null` | 原来拒绝只回 `{ message }`，通过回 `Avatar` |
 | `GET /api/albums`、`/search` | 返回值结构不变，字段为 `AlbumSummaryDto` | |
 | `GET /api/albums/{id}` | `images[]` 对非 staff、非本人的访问者只含**已过审**图片 | 私有图集里未过审的图不再出现 |
+| `GET /api/albums`、`/search`、`/albums/{id}` | 图集 DTO 新增 `likeCount`、`favoriteCount`、`likedByMe`、`favoritedByMe`，以及 `reviewStatus`、`reviewEditUsed`、`reviewSubmittedAt`、`reviewRound`、`reviewedAt`、`reviewRejectReason` | 老字段不变；统计对未登录访问者恒为 0 / `false` |
+| `POST /api/albums/{id}/review` | 返回 `{ message, approvedImages, rejectedImages, album }` | 按两个计数展示批量结果，不要只读 `message` |
 | `GET /api/users` | 每项为 `UserListItemDto`（没有 `updatedAt` / `deletedAt`），新增 `avatarUrl` | 头像地址不必再手工拼前缀 |
 | `GET /api/users/{id}/public` | 新增 `avatarUrl`（`avatar` 保持 `{ path }` 不变） | |
 | `POST /api/avatars/{userId}` | 响应 `submission` 新增 `imageUrl` | 提交后可直接用 `<img src>` 预览待审头像 |
@@ -54,6 +68,8 @@
 | `PATCH /api/users/me/password` | 登录 + `oldPassword` | 登录 + **再认证票据**（`X-Reauth-Token`），不再校验 `oldPassword` |
 | `DELETE /api/users/{id}` | 登录 + 本人/管理员+ | 追加 **再认证票据** |
 | `PATCH /api/users/{id}/role` | MODERATOR+ 且受分级限制 | 追加 **再认证票据** |
+| `GET /api/albums/favorites`、`/liked`，以及图集点赞/收藏/举报 | 无 | 需要登录（USER+）；私有图集只对本人/审核员可见，其他人一律 404 |
+| `POST /api/albums/{id}/review` | 无 | MODERATOR+；默认不能审核自己拥有的图集，ADMIN+ 或自审赦免名单内例外；待审图片里含自己上传的图也同样拒绝 |
 
 ### 1.4 新增的错误
 
@@ -106,7 +122,7 @@
 
 ## 2.2 OpenAPI 规格重新导出
 
-`docs/openapi.json` 与 `docs/openapi.yaml` 已从运行中的服务重新导出，与当前实现一致：**38 个 path / 50 个 operation / 30 个 schema**，`components.securitySchemes` 为 `bearer` + `koharu_token`（cookie），缩略图 / 签名 / 下载三个图片流接口另外声明了可选 `?access_token=` 参数，`GET /api/avatars/{userId}/pending/image` 的 `security` 为「Cookie 或 Bearer 二者之一」。改密码 / 删账号 / 改角色三个接口已声明必填 `X-Reauth-Token` 头，`VerifyPasswordDto` 已进入 schema。改了 DTO 或 controller 之后必须重导，步骤见 [README · 重新导出 OpenAPI 规格](README.md#重新导出-openapi-规格)。
+`docs/openapi.json` 与 `docs/openapi.yaml` 在 2.4 这一轮从运行中的服务重新导出，与当时的实现一致：**38 个 path / 50 个 operation / 30 个 schema**，`components.securitySchemes` 为 `bearer` + `koharu_token`（cookie），缩略图 / 签名 / 下载三个图片流接口另外声明了可选 `?access_token=` 参数，`GET /api/avatars/{userId}/pending/image` 的 `security` 为「Cookie 或 Bearer 二者之一」。改密码 / 删账号 / 改角色三个接口已声明必填 `X-Reauth-Token` 头，`VerifyPasswordDto` 已进入 schema。**2.5 新增的图集接口尚未重导**（当前规格里没有这些 path），上线前需按 [README · 重新导出 OpenAPI 规格](README.md#重新导出-openapi-规格) 重导。
 
 ## 2.3 自审豁免（本轮新增）
 
@@ -129,6 +145,20 @@
 | 配置 `auth.reauth` | `ttl_ms`（300000）/ `max_failures`（5）/ `ip_max_failures`（20），窗口与封禁复用 `auth.login_throttle` |
 | 频控分桶 | 再认证使用 `r:` / `rip:` 独立桶，验密失败不会把账号的登录入口锁死 |
 
+## 2.5 图集点赞 / 收藏 / 举报 / 整集评审（本轮新增）
+
+| 变更 | 说明 |
+|---|---|
+| 新增 `album_likes`、`album_favorites` 表 | 各自 `UNIQUE(albumId, userId)`，删除图集/用户时级联清理；计数与「我是否点过」由这两个表实时统计 |
+| 新增 `album_reports` 表 | 举报原因、补充说明、处理状态、处理人/时间/备注；`reporterId` 在用户硬删后置空，举报记录保留 |
+| `albums` 新增 7 列 | `reviewStatus`、`reviewEditUsed`、`reviewSubmittedAt`、`reviewRound`、`reviewedBy`、`reviewedAt`、`reviewRejectReason`；`reviewedBy` 不对外暴露 |
+| 新增 14 个接口 | 点赞/收藏/我的收藏夹/我点赞的、举报与举报队列、核实/驳回、提交评审、待评审名单、整集评审；见 [03 §1.6](03-api.md#16-图集与标签-apialbums-apialbums) |
+| 举报 → 待评审闭环 | 举报 `pending` → 审核员 `verify` → 举报 `verified` 且图集 `reviewStatus=pending` 进入待评审名单（仅当图集原本不在评审中才重置一次修改机会）→ 所有者可改一次 → 审核员整集评审 → 举报置 `resolved` |
+| 整集评审 | `POST /albums/{id}/review` 用一次请求把图集内所有 `status=pending` 图片批量改为 `approved` / `rejected`，不再逐张审核；`rejected` 必须给原因，原因同时写入每张被拒图片 |
+| 自审限制 | 沿用 `ReviewExemptionService`：默认不能评审自己拥有的图集，待审图片中包含自己上传的图片也拒绝；ADMIN+ 或 `reviewExempt=true` 放行 |
+| 生产环境需要手工建表/加列 | 仓库无迁移文件且 `synchronize=false`；完整 SQL（含两个新枚举类型）见 [04 §6](04-data-model.md#6-生产环境的迁移注意) |
+| OpenAPI 规格待重导 | 当前 `docs/openapi.*` 仍是 50 个 operation，新增图集接口未进入 schema；上线前按 README 步骤重导 |
+
 ## 3. 未做 / 已知限制
 
 | 项 | 说明 |
@@ -141,4 +171,9 @@
 | 没有邮件验证 | `emailVerified` 默认 `true`，字段只是预留 |
 | 没有分页游标 | 一律 `page`/`limit` 偏移分页，深翻页有性能上限 |
 | 仓库无迁移文件 | 生产 `synchronize=false`，改表需手工 SQL |
+| 整集评审只处理 `pending` 图片 | 已过审 / 已驳回的图片不随图集结果翻转；若需连带处理已过审图片要另开接口 |
+| 重新提交不再获得修改机会 | `reviewEditUsed` 在驳回后不重置，所有者只能原样重新提交，避免「无限修改」 |
+| 举报只能定位到图集 | `album_reports` 没有 `imageId` 列，无法举报单张图片；需要时再加列并改 DTO |
+| 点赞/收藏计数无缓存 | 每次列表/详情按 `albumId` 分组实时统计，热门图集高并发时可能成为瓶颈 |
+| 本次未重导 OpenAPI | 见 2.5；在重导之前 `docs/openapi.*` 与实现不一致 |
 | 没有 CORS 配置 | 前后端同源部署；若前端独立域名需自行加 `app.enableCors()` |

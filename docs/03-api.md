@@ -1,6 +1,6 @@
 # 03 · 接口参考
 
-本文按模块列出全部 **50 个操作**。机器可读版本见 [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml)（由运行中的服务导出，与本表同源）。
+本文按模块列出全部 **64 个操作**。机器可读版本见 [openapi.json](openapi.json) / [openapi.yaml](openapi.yaml)（由运行中的服务导出，与本表同源；新增图集接口后需重新导出）。
 
 - 接口前缀、UUID 要求、分页、错误体等全局约定见 [README.md](README.md#全局约定)。
 - 权限层级与矩阵见 [02-auth-and-permissions.md](02-auth-and-permissions.md)。
@@ -115,12 +115,21 @@
 | POST | `/api/albums` | USER+ | `AlbumDetailDto` |
 | GET | `/api/albums` | 公开 | `Paginated<AlbumSummaryDto>` |
 | GET | `/api/albums/search` | 公开 | `Paginated<AlbumSummaryDto>` |
+| GET | `/api/albums/favorites` | USER+ | `Paginated<AlbumSummaryDto>`（我的收藏夹） |
+| GET | `/api/albums/liked` | USER+ | `Paginated<AlbumSummaryDto>`（我点赞的图集） |
 | GET | `/api/albums/{id}` | 公开图集 / 私有见下 | `AlbumDetailDto` |
 | PATCH | `/api/albums/{id}` | 本人或管理员+ | `AlbumDetailDto` |
 | DELETE | `/api/albums/{id}` | 本人或管理员+ | `{ message }` |
 | POST | `/api/albums/{id}/unlock` | ADMIN+ | `AlbumDetailDto` |
 | POST | `/api/albums/{id}/images` | 本人或管理员+ | `AlbumDetailDto` |
 | DELETE | `/api/albums/{id}/images` | 本人或管理员+ | `AlbumDetailDto` |
+| POST | `/api/albums/{id}/like` | USER+ | `AlbumReactionDto` |
+| DELETE | `/api/albums/{id}/like` | USER+ | `AlbumReactionDto` |
+| POST | `/api/albums/{id}/favorite` | USER+ | `AlbumReactionDto` |
+| DELETE | `/api/albums/{id}/favorite` | USER+ | `AlbumReactionDto` |
+| POST | `/api/albums/{id}/reports` | USER+ | `{ message, report: AlbumReportItemDto }` |
+| POST | `/api/albums/{id}/submit-review` | 本人 | `AlbumDetailDto` |
+| POST | `/api/albums/{id}/review` | MODERATOR+，自审受限 | `{ message, approvedImages, rejectedImages, album: AlbumDetailDto }` |
 | GET | `/api/tags` | 公开 | `Tag[]` |
 | POST | `/api/tags` | MODERATOR+ | `Tag` |
 | DELETE | `/api/tags/{id}` | ADMIN+ | `{ message }` |
@@ -129,6 +138,37 @@
 - 私有图集详情对非本人、非审核员返回 `404`（不暴露存在性）。
 - `AlbumDetailDto.images` 对非 staff、非本人的访问者只包含已过审图片。
 - `POST /api/albums/{id}/images` 只接受**已过审**且属于该图集创建者的图片 id。
+- 点赞与收藏都是幂等的：`POST` 已点赞/已收藏不会重复写入，`DELETE` 未点赞/未收藏也返回成功；响应统一为 `AlbumReactionDto`。
+- `AlbumSummaryDto` / `AlbumDetailDto` 均返回 `likeCount`、`favoriteCount`、`likedByMe`、`favoritedByMe`；未登录时后两者为 `false`。
+- `GET /api/albums/favorites`、`GET /api/albums/liked` 按关系创建时间倒序，当前用户已不可见的图集不会出现在结果里。
+- 私有图集只有本人与 staff 能点赞/收藏，其他人按不存在处理（`404`）。
+
+### 1.6.1 图集举报 `/api/album-reports`
+
+| 方法 | 路径 | 权限 | 成功响应 |
+|---|---|---|---|
+| GET | `/api/album-reports` | MODERATOR+ | `Paginated<AlbumReportItemDto>` |
+| GET | `/api/album-reports/{id}` | MODERATOR+ | `AlbumReportItemDto` |
+| POST | `/api/album-reports/{id}/verify` | MODERATOR+ | `{ message, report: AlbumReportItemDto }` |
+| POST | `/api/album-reports/{id}/dismiss` | MODERATOR+ | `{ message, report: AlbumReportItemDto }` |
+
+- `GET /api/album-reports` 支持 `?status=pending|verified|dismissed|resolved`，按提交时间倒序。
+- 举报人不能举报自己的图集（`400`）；同一用户对同一图集只能保留一条 `pending` / `verified` 举报（重复提交 `409`）。
+- `verify` 把举报置为 `verified`，并把图集加入待评审名单（`reviewStatus=pending`）。若图集原本不在评审中，会重置本次修改机会（`reviewEditUsed=false`）、写 `reviewSubmittedAt` 并递增 `reviewRound`；已在评审中的图集不会重置修改机会。
+- `dismiss` 把举报置为 `dismissed`，图集状态不变。
+- `verify` / `dismiss` 对非 `pending` 举报返回 `409`；处理人写入 `handledBy` / `handledAt`，可选备注写入 `resolutionNote`。
+
+### 1.6.2 待评审与整集评审
+
+| 方法 | 路径 | 权限 | 成功响应 |
+|---|---|---|---|
+| GET | `/api/album-reviews/pending` | MODERATOR+ | `Paginated<AlbumReviewItemDto>` |
+
+- 待评审列表只包含 `reviewStatus=pending` 的图集，按 `reviewSubmittedAt` 升序；每项带 `pendingImageCount` 与已核实（`verified`）举报列表。
+- `POST /api/albums/{id}/review` 的 body 为 `{ status: "approved" | "rejected", reason? }`；`rejected` 时 `reason` 必填（≤255）。
+- 一次调用会把图集内所有 `pending` 图片批量改为 `approved` 或 `rejected`，同时写入图集评审结果；已核实举报随评审结束置为 `resolved`。已过审/已驳回的图片不会被改动。
+- 自审限制：不能审核自己的图集；若待审图片中包含审核员自己上传的图片且未获自审赦免，返回 `403`。
+- 图集被驳回后，所有者可在**未用过**本次修改机会时修改一次；已用过修改机会后修改返回 `403`，只能调 `submit-review` 重新提交，且重新提交不会再次获得修改机会。
 
 ### 1.7 审计 `/api/audit-logs`
 
@@ -230,6 +270,11 @@
 | | `tags` | string[] | 可选，标签名必须已存在 |
 | `UpdateAlbumDto` | `title` / `description` / `visibility` / `tags` | 同上 | 全部可选；`tags` 是**整体替换** |
 | `UpdateAlbumImagesDto` | `imageIds` | uuid[] | 必填 |
+| `CreateAlbumReportDto` | `reason` | string | 必填，1–500 |
+| | `detail` | string | 可选，≤1000 |
+| `HandleAlbumReportDto` | `note` | string | 可选，≤500 |
+| `ReviewAlbumDto` | `status` | enum | 必填，`approved` / `rejected` |
+| | `reason` | string | `rejected` 时必填，≤255 |
 | `CreateTagDto` | `name` | string | 必填，1–50，唯一 |
 
 ---
@@ -274,9 +319,12 @@
 |---|---|
 | `AlbumOwnerDto` | `id`、`username` |
 | `AlbumTagDto` | `id`、`name` |
-| `AlbumSummaryDto` | `id`、`title`、`description`、`visibility`、`locked`、`ownerId`、`owner`、`tags`、`imageCount`、`createdAt`、`updatedAt` |
-| `AlbumDetailDto` | `id`、`title`、`description`、`visibility`、`locked`、`ownerId`、`owner`、`tags`、`images`、`createdAt`、`updatedAt` |
+| `AlbumSummaryDto` | `id`、`title`、`description`、`visibility`、`locked`、`ownerId`、`owner`、`tags`、`imageCount`、`likeCount`、`favoriteCount`、`likedByMe`、`favoritedByMe`、`reviewStatus`、`reviewEditUsed`、`reviewSubmittedAt`、`reviewRound`、`reviewedAt`、`reviewRejectReason`、`createdAt`、`updatedAt` |
+| `AlbumDetailDto` | `id`、`title`、`description`、`visibility`、`locked`、`ownerId`、`owner`、`tags`、`images`、`likeCount`、`favoriteCount`、`likedByMe`、`favoritedByMe`、`reviewStatus`、`reviewEditUsed`、`reviewSubmittedAt`、`reviewRound`、`reviewedAt`、`reviewRejectReason`、`createdAt`、`updatedAt` |
 | `AlbumImageDto` | `id`、`filename`、`thumbnailPath`、`thumbnailUrl`、`status` |
+| `AlbumReactionDto` | `albumId`、`likeCount`、`favoriteCount`、`likedByMe`、`favoritedByMe` |
+| `AlbumReportItemDto` | `id`、`albumId`、`album`（`{ id, title, visibility, reviewStatus, ownerId, ownerUsername }`）、`reporter`（`{ id, username } \| null`）、`reason`、`detail`、`status`、`handledBy`、`handledAt`、`resolutionNote`、`createdAt`、`updatedAt` |
+| `AlbumReviewItemDto` | `AlbumSummaryDto` + `pendingImageCount`、`reports[]`（`{ id, reason, detail, status, reporter, createdAt }`） |
 
 ### 3.4 其他
 
@@ -343,6 +391,38 @@ curl -s $BASE/avatars/pending -H "Authorization: Bearer $MOD"
 curl -s -o pending.jpg $BASE/avatars/<USER_ID>/pending/image -H "Authorization: Bearer $MOD"
 curl -s -X POST $BASE/avatars/<USER_ID>/review -H "Authorization: Bearer $MOD" \
   -H 'Content-Type: application/json' -d '{"status":"rejected","reason":"请使用正面清晰照片"}'
+```
+
+### 4.4 点赞、收藏、举报与整集评审
+
+```bash
+TOKEN=...            # 普通用户
+MOD=...              # 审核员及以上
+
+# 点赞 / 收藏（幂等）
+curl -s -X POST $BASE/albums/<ALBUM>/like -H "Authorization: Bearer $TOKEN"
+curl -s -X POST $BASE/albums/<ALBUM>/favorite -H "Authorization: Bearer $TOKEN"
+
+# 我的收藏夹 / 我点赞的
+curl -s "$BASE/albums/favorites?page=1&limit=20" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE/albums/liked" -H "Authorization: Bearer $TOKEN"
+
+# 举报（不能举报自己的图集）
+curl -s -X POST $BASE/albums/<ALBUM>/reports -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"reason":"疑似盗图","detail":"原图出处：…"}'
+
+# 审核员查看并核实举报
+curl -s "$BASE/album-reports?status=pending" -H "Authorization: Bearer $MOD"
+curl -s -X POST $BASE/album-reports/<REPORT>/verify -H "Authorization: Bearer $MOD" \
+  -H 'Content-Type: application/json' -d '{"note":"已确认"}'
+
+# 图集进入待评审名单
+curl -s "$BASE/album-reviews/pending" -H "Authorization: Bearer $MOD"
+
+# 整集评审：一次处理图集内全部待审图片
+curl -s -X POST $BASE/albums/<ALBUM>/review -H "Authorization: Bearer $MOD" \
+  -H 'Content-Type: application/json' -d '{"status":"approved"}'
 ```
 
 ---

@@ -104,9 +104,33 @@
 | `POST /api/albums/{id}/images` | 本人或 `canManageTarget` | 只能归档已过审图片；本人只能归档自己的图片 |
 | `DELETE /api/albums/{id}/images` | 同上 | 只解除关联 |
 | `POST /api/albums/{id}/unlock` | ADMIN+ 且 `canManageTarget`（对图集 owner 的角色） | 解锁并恢复 `public` |
+| `GET /api/albums/favorites`、`/api/albums/liked` | USER+ | 只返回自己的收藏 / 点赞记录，且会过滤掉当前已不可见的私有图集 |
+| `POST` / `DELETE /api/albums/{id}/like`、`/favorite` | USER+ | 幂等；私有图集对非本人、非 MODERATOR+ 一律 404 |
+| `POST /api/albums/{id}/reports` | USER+ | 不能举报自己的图集（400）；同一用户对同一图集已有 `pending` / `verified` 举报时 409 |
+| `POST /api/albums/{id}/submit-review` | 本人（owner） | 仅当图集为 `pending`（409，已在名单中）或 `rejected`（重新提交）时可用 |
+| `POST /api/albums/{id}/review` | MODERATOR+，且不能审自己拥有的图集（ADMIN+ 或已加入自审赦免名单时除外） | 整集评审；待审图片中含自己上传的图片也会拒绝 |
 | `GET /api/tags` | 公开 | — |
 | `POST /api/tags` | MODERATOR+ | 重名 409 |
 | `DELETE /api/tags/{id}` | ADMIN+ | 同时从所有图集移除该标签 |
+
+### 图集举报与评审
+
+图集级审核是「举报驱动」的，和个人图片审核互不替代：
+
+1. 任意 USER+ 可举报一个图集；同一图集同时只保留一条该用户的待处理举报。
+2. `MODERATOR+` 通过 `GET /api/album-reports` 收取举报，`POST /api/album-reports/{id}/verify` 核实后，举报置 `verified`、图集 `reviewStatus=pending`，进入 `GET /api/album-reviews/pending` 待评审名单；`POST /api/album-reports/{id}/dismiss` 则直接驳回举报。
+3. 图集所有者本轮有**一次修改机会**（`reviewEditUsed` 记录）：`pending` 期间可改；若图集被驳回且修改机会已用掉，则不能再改，只能 `POST /api/albums/{id}/submit-review` 原样重新提交。
+4. `POST /api/albums/{id}/review` 是**整集评审**：一次请求批量处理该图集内所有 `status=pending` 的图片（通过→`approved`，驳回→`rejected` 并写入原因），同时把该图集已核实的举报置 `resolved`。
+
+### 图集举报队列与待评审名单
+
+| 接口 | 权限 |
+|---|---|
+| `GET /api/album-reports` | MODERATOR+（可按 `status` 过滤） |
+| `GET /api/album-reports/{id}` | MODERATOR+ |
+| `POST /api/album-reports/{id}/verify` | MODERATOR+ |
+| `POST /api/album-reports/{id}/dismiss` | MODERATOR+ |
+| `GET /api/album-reviews/pending` | MODERATOR+ |
 
 ### 审计
 
@@ -281,5 +305,10 @@ X-Reauth-Token: <jwt>
 | 审核入参传 `pending` | 400（只接受 approved / rejected） |
 | 同一用户已有待审头像时再提交 | 409 |
 | 改稿第二次 | 400（终身一次） |
+| 整集评审自己拥有的图集 | 403（ADMIN+ 或自审赦免名单例外）；待审图片中含自己上传的图片也 403 |
+| 对不在 `pending` 状态的图集调用 `POST /albums/{id}/review` | 409（不在待评审名单中） |
+| 图集 `rejected` 不带 `reason` | 400 |
+| 图集被驳回且修改机会已用掉后再改标题/图片 | 403，只能 `POST /albums/{id}/submit-review` 重新提交 |
+| 举报自己的图集 / 已有待处理举报再举报 | 400 / 409 |
 
 409 都建议前端提示「刷新列表后重试」，而不是静默重试——因为另一名审核员可能已经做了相反的决定。

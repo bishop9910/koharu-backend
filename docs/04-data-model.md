@@ -1,6 +1,6 @@
 # 04 · 数据模型
 
-9 张表由 TypeORM 实体定义（`src/entities/`）。本文是实体的等价描述。列名即属性名：项目没有启用命名策略，TypeORM 会给标识符加双引号，所以库里就是 `userId`、`createdAt` 这样的 camelCase 列名。
+12 张表由 TypeORM 实体定义（`src/entities/`）。本文是实体的等价描述。列名即属性名：项目没有启用命名策略，TypeORM 会给标识符加双引号，所以库里就是 `userId`、`createdAt` 这样的 camelCase 列名。
 
 ## 1. 关系总览
 
@@ -9,6 +9,14 @@ users 1 ──── 1 avatars              (avatars.userId UNIQUE, ON DELETE CA
 users 1 ──── N images               (images.userId,      ON DELETE SET NULL)
 users 1 ──── N albums               (albums.ownerId,     ON DELETE CASCADE)
 users 1 ──── N avatar_submissions   (avatar_submissions.userId, 无外键)
+
+users 1 ──── N album_likes          (album_likes.userId,    ON DELETE CASCADE)
+users 1 ──── N album_favorites      (album_favorites.userId, ON DELETE CASCADE)
+users 1 ──── N album_reports        (album_reports.reporterId, ON DELETE SET NULL)
+
+albums 1 ──── N album_likes         (album_likes.albumId,    ON DELETE CASCADE)
+albums 1 ──── N album_favorites     (album_favorites.albumId, ON DELETE CASCADE)
+albums 1 ──── N album_reports       (album_reports.albumId,  ON DELETE CASCADE)
 
 images N ──── N albums              (album_images)
 albums N ──── N tags                (album_tags)
@@ -86,6 +94,13 @@ audit_logs 独立表，无外键（保存操作者快照，避免用户改名/�
 | `ownerId` | uuid | INDEX, 外键→users, `ON DELETE CASCADE` | |
 | `visibility` | enum | 默认 `public` | 见 §3 |
 | `locked` | boolean | 默认 `false` | 管理员把他人公开图集改成私有时置 `true`，原主人不能再改 |
+| `reviewStatus` | enum | 默认 `none`, INDEX | 图集评审状态，见 §3；被举报核实后置 `pending` |
+| `reviewEditUsed` | boolean | 默认 `false` | 本轮评审是否已用过「一次修改机会」；驳回后为 `true` 时禁止再改，只能重新提交 |
+| `reviewSubmittedAt` | timestamp | 可空 | 最近一次进入待评审名单的时间；列表按它升序 |
+| `reviewRound` | int | 默认 `0` | 被核实/重新提交的次数，只用于追踪 |
+| `reviewedBy` | varchar | 可空 | 最近一次整集评审的审核人 id（**不对外暴露**） |
+| `reviewedAt` | timestamp | 可空 | 最近一次评审时间 |
+| `reviewRejectReason` | varchar(255) | 可空 | 图集被驳回的原因，仅 `rejected` 时有值 |
 | `createdAt` / `updatedAt` | timestamp | | |
 
 ### 2.6 `tags`
@@ -142,6 +157,45 @@ audit_logs 独立表，无外键（保存操作者快照，避免用户改名/�
 
 这两个列必须显式写 `type`（`varchar`）：TS 的联合类型（`string | null`、字符串字面量联合）在 `emitDecoratorMetadata` 里退化成 `Object`，TypeORM 无法推断列类型。
 
+### 2.10 `album_likes`
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `albumId` | uuid | INDEX, 外键→albums, `ON DELETE CASCADE` | |
+| `userId` | uuid | INDEX, 外键→users, `ON DELETE CASCADE` | |
+| `createdAt` | timestamp | | 点赞时间，「我点赞的图集」按它倒序 |
+
+`UNIQUE(albumId, userId)`：同一用户对同一图集最多一条点赞记录。点赞幂等靠这个唯一键兜底。
+
+### 2.11 `album_favorites`
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `albumId` | uuid | INDEX, 外键→albums, `ON DELETE CASCADE` | |
+| `userId` | uuid | INDEX, 外键→users, `ON DELETE CASCADE` | |
+| `createdAt` | timestamp | | 收藏时间，收藏夹按它倒序 |
+
+`UNIQUE(albumId, userId)`，语义与 `album_likes` 相同。
+
+### 2.12 `album_reports`
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `albumId` | uuid | INDEX, 外键→albums, `ON DELETE CASCADE` | 被举报图集 |
+| `reporterId` | uuid | 可空, 外键→users, `ON DELETE SET NULL` | 举报人；用户硬删后置空，举报记录保留 |
+| `reason` | varchar(500) | 非空 | 举报原因 |
+| `detail` | varchar(1000) | 可空 | 补充说明 |
+| `status` | enum | 默认 `pending`, INDEX | 见 §3；复合索引 `(albumId, status)` |
+| `handledBy` | varchar | 可空 | 处理人 id（**不对外暴露**） |
+| `handledAt` | timestamp | 可空 | 核实/驳回时间 |
+| `resolutionNote` | varchar(500) | 可空 | 处理备注 |
+| `createdAt` / `updatedAt` | timestamp | | |
+
+同一用户对同一图集只允许保留一条 `pending` / `verified` 举报（业务层校验，非数据库唯一约束，因为历史已处理举报需要保留多条）。
+
 ## 3. 枚举
 
 | 枚举 | 值 | 使用位置 |
@@ -150,6 +204,8 @@ audit_logs 独立表，无外键（保存操作者快照，避免用户改名/�
 | `ImageStatus` | `pending` / `approved` / `rejected` | `images.status` |
 | `AvatarStatus` | `pending` / `approved` / `rejected` | `avatar_submissions.status` |
 | `AlbumVisibility` | `public` / `private` | `albums.visibility` |
+| `AlbumReviewStatus` | `none` / `pending` / `approved` / `rejected` | `albums.reviewStatus` |
+| `ReportStatus` | `pending` / `verified` / `dismissed` / `resolved` | `album_reports.status` |
 
 角色**全大写**，状态与可见性**全小写**——这是历史约定，前后端都按原样对接。
 
@@ -163,7 +219,11 @@ audit_logs 独立表，无外键（保存操作者快照，避免用户改名/�
 | `archived` | 该图片是否已加入任一图集（`images` 关系是否为空） |
 | `username`（待审图片队列） | join `users` |
 | `username`（待审头像队列） | 按 `userId` 批量查 `users` 后拼装，**不是** join |
-| `imageCount` | `albums.images` 的长度 |
+| `imageCount` | `albums.images` 的长度（列表接口用 `album_images` 关联计数） |
+| `likeCount` / `favoriteCount` | 按 `album_likes` / `album_favorites` 分组计数 |
+| `likedByMe` / `favoritedByMe` | 当前用户是否在 `album_likes` / `album_favorites` 中；未登录为 `false` |
+| `pendingImageCount` | 待评审列表里该图集 `status=pending` 的图片数 |
+| `reports`（待评审列表） | 该图集 `status=verified` 的举报，按时间倒序 |
 
 ## 5. 级联与删除语义
 
@@ -173,8 +233,9 @@ audit_logs 独立表，无外键（保存操作者快照，避免用户改名/�
 | 保留期到期 | `CleanupService` 硬删软删除用户（`DELETE`），级联清掉 `avatars`、`albums` |
 | 删除图片 | 删除原图 + 缩略图缓存 + 从所有图集移除 + 删数据库行 |
 | 删除头像投稿 | 删除文件 + 删 `avatar_submissions` 行 |
-| 删除图集 | 删行 + 清 `album_images` / `album_tags` 关联（图片本身保留） |
+| 删除图集 | 删行 + 清 `album_images` / `album_tags` 关联（图片本身保留）；级联删除其 `album_likes`、`album_favorites`、`album_reports` |
 | 删除标签 | 先从所有图集上摘掉，再删标签（管理员操作） |
+| 硬删除用户 | 级联删除其 `album_likes`、`album_favorites`；`album_reports.reporterId` 置空，举报记录保留 |
 
 `images.userId` 是 `SET NULL`：理论上删用户后图片会变成"无主"，但业务层会先删图，所以只有绕过业务层直接删行才会遇到 `userId = null`。
 
@@ -188,5 +249,58 @@ audit_logs 独立表，无外键（保存操作者快照，避免用户改名/�
   ALTER TABLE users ADD COLUMN "reviewExempt" boolean NOT NULL DEFAULT false;
   ```
   `DEFAULT false` 让存量用户全部保持「不能自审」，管理员及以上不依赖该列、自然豁免。
-- 修改枚举值（Postgres enum）需要 `ALTER TYPE ... ADD VALUE`，且不能在事务块里执行（旧版本限制）。
+- 图集点赞/收藏/举报与评审状态是同一批新增结构，上线时按下面顺序执行（TypeORM 在本地 `synchronize=true` 生成的 Postgres 枚举类型名形如 `albums_reviewstatus_enum`；若你的库中不同，以实际名称为准）：
+  ```sql
+  -- 1) 新枚举
+  CREATE TYPE "albums_reviewstatus_enum" AS ENUM ('none', 'pending', 'approved', 'rejected');
+  CREATE TYPE "album_reports_status_enum" AS ENUM ('pending', 'verified', 'dismissed', 'resolved');
+
+  -- 2) albums 新列（全部带默认值或可空，存量行安全）
+  ALTER TABLE albums ADD COLUMN "reviewStatus" "albums_reviewstatus_enum" NOT NULL DEFAULT 'none';
+  ALTER TABLE albums ADD COLUMN "reviewEditUsed" boolean NOT NULL DEFAULT false;
+  ALTER TABLE albums ADD COLUMN "reviewSubmittedAt" timestamp;
+  ALTER TABLE albums ADD COLUMN "reviewRound" int NOT NULL DEFAULT 0;
+  ALTER TABLE albums ADD COLUMN "reviewedBy" varchar;
+  ALTER TABLE albums ADD COLUMN "reviewedAt" timestamp;
+  ALTER TABLE albums ADD COLUMN "reviewRejectReason" varchar(255);
+  CREATE INDEX "IDX_albums_reviewStatus" ON albums ("reviewStatus");
+
+  -- 3) 点赞 / 收藏
+  CREATE TABLE "album_likes" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    "albumId" uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    "userId" uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    "createdAt" timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT "UQ_album_likes_album_user" UNIQUE ("albumId", "userId")
+  );
+  CREATE INDEX "IDX_album_likes_album" ON "album_likes" ("albumId");
+  CREATE INDEX "IDX_album_likes_user" ON "album_likes" ("userId");
+
+  CREATE TABLE "album_favorites" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    "albumId" uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    "userId" uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    "createdAt" timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT "UQ_album_favorites_album_user" UNIQUE ("albumId", "userId")
+  );
+  CREATE INDEX "IDX_album_favorites_album" ON "album_favorites" ("albumId");
+  CREATE INDEX "IDX_album_favorites_user" ON "album_favorites" ("userId");
+
+  -- 4) 举报
+  CREATE TABLE "album_reports" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    "albumId" uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    "reporterId" uuid REFERENCES users(id) ON DELETE SET NULL,
+    "reason" varchar(500) NOT NULL,
+    "detail" varchar(1000),
+    "status" "album_reports_status_enum" NOT NULL DEFAULT 'pending',
+    "handledBy" varchar,
+    "handledAt" timestamp,
+    "resolutionNote" varchar(500),
+    "createdAt" timestamp NOT NULL DEFAULT now(),
+    "updatedAt" timestamp NOT NULL DEFAULT now()
+  );
+  CREATE INDEX "IDX_album_reports_album_status" ON "album_reports" ("albumId", "status");
+  ```
+- 如果选择复用已有枚举类型，新增枚举值必须用 `ALTER TYPE ... ADD VALUE`，且不能放在事务块里（旧版本限制）。上面的 SQL 用 `gen_random_uuid()` 生成主键，需要 PostgreSQL 13+（或已安装 `pgcrypto`）。
 - 新增外键（如 `avatar_submissions.userId → users.id`）会因历史脏数据失败，先跑一遍 `SELECT` 校验。

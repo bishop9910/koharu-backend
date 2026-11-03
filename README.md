@@ -322,12 +322,42 @@ auth:
 | POST | `/albums` | 创建图集（可携带标签） | USER+ |
 | GET | `/albums` | 图集列表（公开图集 + 自己创建的私有图集） | 公开/可选登录 |
 | GET | `/albums/search` | 搜索图集（标题/描述模糊 + 标签全命中） | 公开/可选登录 |
-| GET | `/albums/:id` | 图集详情 | 公开 / 本人 / MODERATOR+（私有图集对其余人返回 `404`） |
+| GET | `/albums/favorites` | 我的收藏夹（分页，按收藏时间倒序） | USER+ |
+| GET | `/albums/liked` | 我点赞过的图集（分页，按点赞时间倒序） | USER+ |
+| GET | `/albums/:id` | 图集详情（含点赞/收藏统计与评审状态） | 公开 / 本人 / MODERATOR+（私有图集对其余人返回 `404`） |
 | PATCH | `/albums/:id` | 修改图集信息 | 本人/上级 |
 | POST | `/albums/:id/unlock` | 解锁被锁定的图集 | ADMIN+ |
 | DELETE | `/albums/:id` | 删除图集（不删图片） | 本人/上级 |
 | POST | `/albums/:id/images` | 归档图片（仅已过审） | 本人/上级 |
 | DELETE | `/albums/:id/images` | 移除归档图片 | 本人/上级 |
+| POST | `/albums/:id/like` | 点赞图集（幂等，返回最新统计） | USER+ |
+| DELETE | `/albums/:id/like` | 取消点赞（幂等） | USER+ |
+| POST | `/albums/:id/favorite` | 收藏图集（幂等，返回最新统计） | USER+ |
+| DELETE | `/albums/:id/favorite` | 取消收藏（幂等） | USER+ |
+| POST | `/albums/:id/reports` | 举报图集（不能举报自己的图集） | USER+ |
+| POST | `/albums/:id/submit-review` | 被驳回后重新提交评审 | 本人 |
+| POST | `/albums/:id/review` | 整集评审：一次处理图集内全部待审图片 | MODERATOR+ |
+
+> **点赞/收藏统计**：`AlbumSummaryDto` 与 `AlbumDetailDto` 均带 `likeCount`、`favoriteCount`、`likedByMe`、`favoritedByMe`；未登录时 `likedByMe` / `favoritedByMe` 固定为 `false`。点赞与收藏幂等，`POST` 重复调用不会重复计数。
+>
+> **图集评审字段**：详情与列表额外返回 `reviewStatus`（`none` / `pending` / `approved` / `rejected`）、`reviewEditUsed`、`reviewSubmittedAt`、`reviewRound`、`reviewedAt`、`reviewRejectReason`；`reviewedBy` 只在服务端保存，不对外返回。
+>
+> **举报 → 待评审闭环**：举报提交后为 `pending`；审核员及以上在 `GET /album-reports` 查看并调 `verify` 核实，图集随即进入待评审名单（`reviewStatus=pending`），原主人获得**一次**修改机会；审核员用 `POST /albums/:id/review` 一次性评审图集内全部待审图片。若图集被驳回且修改机会已用过，原主人只能调 `submit-review` 重新提交。
+
+### album-reports（图集举报）
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/album-reports` | 举报列表，支持 `?status=pending\|verified\|dismissed\|resolved` 与分页 | MODERATOR+ |
+| GET | `/album-reports/:id` | 单条举报详情 | MODERATOR+ |
+| POST | `/album-reports/:id/verify` | 核实举报，把图集加入待评审名单 | MODERATOR+ |
+| POST | `/album-reports/:id/dismiss` | 驳回举报（举报不成立） | MODERATOR+ |
+
+### album-reviews（图集待评审）
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/album-reviews/pending` | 待评审图集列表（含待审图片数与已核实举报，按提交时间正序） | MODERATOR+ |
 
 ### tags（标签）
 
@@ -366,7 +396,13 @@ auth:
 | `GET /images/pending` | `{ data: PendingImageDto[], total, page, limit, totalPages }`（多 `username`） |
 | `GET /images/:id/sign` | `{ downloadUrl, expiresInMs }` |
 | `GET /albums`、`GET /albums/search` | `{ data: AlbumSummaryDto[], total, page, limit, totalPages }` |
-| `POST /albums`、`GET/PATCH /albums/:id`、`POST /albums/:id/unlock`、`POST/DELETE /albums/:id/images` | `AlbumDetailDto`（`images` 项含 `thumbnailUrl`） |
+| `GET /albums/favorites`、`GET /albums/liked` | `{ data: AlbumSummaryDto[], total, page, limit, totalPages }` |
+| `POST/DELETE /albums/:id/like`、`POST/DELETE /albums/:id/favorite` | `AlbumReactionDto`（`albumId`、`likeCount`、`favoriteCount`、`likedByMe`、`favoritedByMe`） |
+| `POST /albums`、`GET/PATCH /albums/:id`、`POST /albums/:id/unlock`、`POST/DELETE /albums/:id/images`、`POST /albums/:id/submit-review` | `AlbumDetailDto`（`images` 项含 `thumbnailUrl`） |
+| `POST /albums/:id/reports`、`POST /album-reports/:id/verify`、`POST /album-reports/:id/dismiss` | `{ message, report: AlbumReportItemDto }` |
+| `GET /album-reports` | `{ data: AlbumReportItemDto[], total, page, limit, totalPages }` |
+| `GET /album-reviews/pending` | `{ data: AlbumReviewItemDto[], total, page, limit, totalPages }` |
+| `POST /albums/:id/review` | `{ message, approvedImages, rejectedImages, album: AlbumDetailDto }` |
 | `GET /users` | `{ data: UserListItemDto[], total, page, limit, totalPages }`（不含 `updatedAt`/`deletedAt`） |
 | 其余 users 接口 | `UserResponseDto`（`Omit<User, 'password'>`） |
 | `GET /audit-logs` | `{ data: AuditLog[], total, page, limit, totalPages }` |
@@ -384,12 +420,12 @@ auth:
 | [docs/README.md](./docs/README.md) | 索引、五分钟启动、目录结构、全局约定、审核闭环 |
 | [docs/01-architecture.md](./docs/01-architecture.md) | 分层、模块装配、请求生命周期、鉴权链、审核状态机、文件存储、审计、后台任务 |
 | [docs/02-auth-and-permissions.md](./docs/02-auth-and-permissions.md) | 角色层级、权限矩阵、登录流程、频控、游客可见性、审核规则 |
-| [docs/03-api.md](./docs/03-api.md) | 50 个操作的端点表、请求/响应 DTO 字段、curl 示例 |
+| [docs/03-api.md](./docs/03-api.md) | 64 个操作的端点表、请求/响应 DTO 字段、curl 示例 |
 | [docs/04-data-model.md](./docs/04-data-model.md) | 表结构、枚举、索引、级联与迁移注意 |
 | [docs/05-config-and-deploy.md](./docs/05-config-and-deploy.md) | 配置全键、构建启动、日志、图库密码运维、反向代理、上线检查清单 |
 | [docs/06-errors.md](./docs/06-errors.md) | 错误体、状态码语义、逐端点错误文案、重试建议 |
 | [docs/07-changes.md](./docs/07-changes.md) | 近期改动与已知限制 |
-| [docs/openapi.json](./docs/openapi.json) / [docs/openapi.yaml](./docs/openapi.yaml) | 从运行中的服务导出的 OpenAPI 3.0 规格（50 操作 / 30 schema） |
+| [docs/openapi.json](./docs/openapi.json) / [docs/openapi.yaml](./docs/openapi.yaml) | 从运行中的服务导出的 OpenAPI 3.0 规格（当前文件为 50 操作 / 30 schema，新增图集接口需按下方步骤重新导出） |
 
 ---
 
