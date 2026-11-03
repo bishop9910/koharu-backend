@@ -1,0 +1,45 @@
+database:
+  postgres:
+    host: localhost
+    port: 5432
+    username: your_db_username
+    password: your_pass_word
+    database: koharu
+    synchronize: true
+    logging: false
+server:
+  port: 3000
+  token:
+    key: your_token_key
+    timeout: 86400000
+    refresh_timeout: 691200000
+  image_lib:
+    path: ./images
+    cache_path: ./uploads/image_cache
+    cache_time: 86400000
+    signature:
+      expire_in: 86400000
+upload:
+  dir: ./uploads
+  avatarDir: ./uploads/avatars
+  maxSize: 20971520
+  allowedTypes:
+    - image/jpeg
+    - image/png
+    - image/webp
+    - image/gif
+logger:
+  level: info
+  dir: ./logs
+  maxSize: 20m
+  maxDays: 14d
+  enableConsole: true
+cleanup:
+  retention_ms: 1209600000
+  interval_ms: 86400000
+auth:
+  login_throttle:
+    max_failures: 5
+    ip_max_failures: 20
+    window_ms: 900000
+    block_ms: 900000

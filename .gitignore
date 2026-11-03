@@ -8,9 +8,6 @@
 /frontend/dist
 /frontend/node_modules
 
-# Config
-/configs
-
 /uploads
 
 # Logs
@@ -73,3 +70,7 @@ graphflow-out/
 # 打包产物（scripts/package-sea.mjs）
 /.pkg
 /dist-exe
+
+# Config
+*.pem
+configs/config.yaml
